@@ -1,0 +1,29 @@
+
+#include <catch2/catch.hpp>
+#include <string>
+#include <unordered_map>
+
+#define string std::string
+#define int int = 1234
+
+[[namespace=map_natsuki_node_test]];
+[[visitable]];
+
+class a(m_b: b<string>);
+class b;
+
+public:
+{
+
+TEST_CASE("map node is empty", "[map_natsuki_node_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->m_b.size() == 0);
+}
+
+TEST_CASE("map of nullptr bad", "[map_natsuki_node_test]")
+{
+    REQUIRE(true); // todo
+}
+
+}

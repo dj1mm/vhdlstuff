@@ -1,0 +1,82 @@
+
+#include <catch2/catch.hpp>
+#include <optional>
+
+#define default1    int = 1
+#define defaultNeg  int = -1901
+#define defaultZero int = 0
+#define defaultPos  int = 987651099
+
+[[namespace=optional_custom_obj_test]];
+[[visitable]];
+
+class b(optOne?: default1, optNeg?: defaultNeg, optZero?: defaultZero, optPos?: defaultPos);
+
+public:
+{
+#include "optional_custom_obj_test_debug.h"
+#include <sstream>
+
+TEST_CASE("default value of optional custom objects", "[optional_custom_obj_test]")
+{
+    auto b_ = std::make_unique<b>();
+    REQUIRE(b_->optOne == std::nullopt);
+    REQUIRE(b_->optNeg == std::nullopt);
+    REQUIRE(b_->optZero == std::nullopt);
+    REQUIRE(b_->optPos == std::nullopt);
+}
+
+TEST_CASE("set value of optional custom objects", "[optional_custom_obj_test]")
+{
+    auto b_ = std::make_unique<b>();
+    b_->optOne = 1234;
+    b_->optNeg = -1234;
+    b_->optZero = 0;
+    b_->optPos = 987654321;
+    REQUIRE(b_->optOne == 1234);
+    REQUIRE(b_->optNeg == -1234);
+    REQUIRE(b_->optZero == 0);
+    REQUIRE(b_->optPos == 987654321);
+}
+
+TEST_CASE("debug 1 optional ints", "[optional_custom_obj_test][debug]")
+{
+    std::stringstream os;
+    optional_custom_obj_test_debug debug(os, 2);
+
+    auto b_ = std::make_unique<b>();
+    b_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "B " << static_cast<void*>(b_.get()) << "\n";
+    ss << "optOne: nullopt\n";
+    ss << "optNeg: nullopt\n";
+    ss << "optZero: nullopt\n";
+    ss << "optPos: nullopt\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 2 optional ints", "[optional_custom_obj_test][debug]")
+{
+    std::stringstream os;
+    optional_custom_obj_test_debug debug(os, 2);
+
+    auto b_ = std::make_unique<b>();
+    b_->optNeg = -786123;
+    b_->optZero = 0;
+    b_->optPos = 987236124;
+    b_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "B " << static_cast<void*>(b_.get()) << "\n";
+    ss << "optOne: nullopt\n";
+    ss << "optNeg: -786123\n";
+    ss << "optZero: 0\n";
+    ss << "optPos: 987236124\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+
+}

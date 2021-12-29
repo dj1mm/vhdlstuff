@@ -1,0 +1,68 @@
+
+#include <catch2/catch.hpp>
+#include <vector>
+
+[[namespace=array_natsuki_enum_test]];
+[[visitable]];
+
+enum e {A,B,C,D,E,F};
+class a(m_e: e[]);
+
+public:
+{
+#include "array_natsuki_enum_test_debug.h"
+#include <sstream>
+
+TEST_CASE("array enum", "[array_natsuki_enum_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->m_e.size() == 0);
+    a_->m_e.push_back(e::A);
+    a_->m_e.push_back(e::B);
+    a_->m_e.push_back(e::C);
+    a_->m_e.push_back(e::D);
+    a_->m_e.push_back(e::E);
+    a_->m_e.push_back(e::F);
+
+    REQUIRE(a_->m_e[0] == e::A);
+    REQUIRE(a_->m_e[1] == e::B);
+    REQUIRE(a_->m_e[2] == e::C);
+    REQUIRE(a_->m_e[3] == e::D);
+    REQUIRE(a_->m_e[4] == e::E);
+    REQUIRE(a_->m_e[5] == e::F);
+}
+
+TEST_CASE("debug 1 array enum", "[array_natsuki_enum_test][debug]")
+{
+    std::stringstream os;
+    array_natsuki_enum_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_e: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 2 array enum", "[array_natsuki_enum_test][debug]")
+{
+    std::stringstream os;
+    array_natsuki_enum_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->m_e.push_back(e::A);
+    a_->m_e.push_back(e::C);
+    a_->m_e.push_back(e::E);
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_e: [A, C, E]\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}

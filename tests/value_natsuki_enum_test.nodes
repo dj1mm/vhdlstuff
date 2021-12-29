@@ -1,0 +1,59 @@
+
+#include <catch2/catch.hpp>
+
+[[namespace=value_natsuki_enum_test]];
+[[visitable]];
+
+enum e {A,B,C,D,E,F};
+class a(m_e: e);
+
+public:
+{
+#include "value_natsuki_enum_test_debug.h"
+#include <sstream>
+
+TEST_CASE("default enum is first value", "[value_natsuki_enum_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->m_e == e::A);
+    REQUIRE(a_->m_e != e::B);
+    REQUIRE(a_->m_e != e::C);
+    REQUIRE(a_->m_e != e::D);
+    REQUIRE(a_->m_e != e::E);
+    REQUIRE(a_->m_e != e::F);
+}
+
+TEST_CASE("debug natsuki enum", "[value_natsuki_enum_test][debug]")
+{
+    std::stringstream os;
+    value_natsuki_enum_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->traverse(debug);
+
+    REQUIRE(a_->m_e == e::A);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << " m_e: A\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 2 natsuki enum", "[value_natsuki_enum_test][debug]")
+{
+    std::stringstream os;
+    value_natsuki_enum_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->m_e = e::B;
+    a_->traverse(debug);
+
+    REQUIRE(a_->m_e == e::B);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << " m_e: B\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}

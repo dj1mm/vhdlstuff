@@ -1,0 +1,23 @@
+
+#include <catch2/catch.hpp>
+#include <unordered_map>
+#include <string>
+
+#define number int = 1
+#define string std::string
+
+[[namespace=map_custom_obj_test]];
+[[visitable]];
+
+class b(num: string<number>);
+
+public:
+{
+
+TEST_CASE("map custom objects", "[map_custom_obj_test]")
+{
+    auto b_ = std::make_unique<b>();
+    REQUIRE(b_->num.size() == 0);
+}
+
+}

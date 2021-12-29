@@ -1,0 +1,57 @@
+
+#include <catch2/catch.hpp>
+
+#define default1    int = 1
+#define defaultNeg  int = -1901
+#define defaultZero int = 0
+#define defaultPos  int = 987651099
+
+[[namespace=value_custom_obj_test]];
+[[visitable]];
+
+class a(One: default1, Neg: defaultNeg, Zero: defaultZero, Pos: defaultPos);
+
+public:
+{
+#include "value_custom_obj_test_debug.h"
+#include <sstream>
+
+TEST_CASE("default value of custom objects", "[value_custom_obj_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->One == 1);
+    REQUIRE(a_->Neg == -1901);
+    REQUIRE(a_->Zero == 0);
+    REQUIRE(a_->Pos == 987651099);
+}
+
+TEST_CASE("debug 1 custom obj", "[value_custom_obj_test][debug]")
+{
+    std::stringstream os;
+    value_custom_obj_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << " One: 1 Neg: -1901 Zero: 0 Pos: 987651099\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 2 custom obj", "[value_custom_obj_test][debug]")
+{
+    std::stringstream os;
+    value_custom_obj_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->Neg = -17286;
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << " One: 1 Neg: -17286 Zero: 0 Pos: 987651099\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}

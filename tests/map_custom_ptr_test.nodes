@@ -1,0 +1,23 @@
+
+#include <catch2/catch.hpp>
+#include <unordered_map>
+#include <string>
+
+#define numPtr int*
+#define string std::string
+
+[[namespace=map_custom_ptr_test]];
+[[visitable]];
+
+class a(ptr: numPtr<string>);
+
+public:
+{
+
+TEST_CASE("map custom ptr", "[map_custom_ptr_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->ptr.size() == 0);
+}
+
+}

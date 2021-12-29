@@ -1,0 +1,66 @@
+
+#include <catch2/catch.hpp>
+#include <optional>
+
+[[namespace=optional_natsuki_enum_test]];
+[[visitable]];
+
+enum e {A,B,C,D,E,F};
+class a(m_e?: e);
+
+public:
+{
+#include "optional_natsuki_enum_test_debug.h"
+#include <sstream>
+
+TEST_CASE("optional enum is first value", "[optional_natsuki_enum_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->m_e == std::nullopt);
+
+    a_->m_e = e::A;
+    REQUIRE(a_->m_e == e::A);
+    a_->m_e = e::B;
+    REQUIRE(a_->m_e == e::B);
+    a_->m_e = e::C;
+    REQUIRE(a_->m_e == e::C);
+    a_->m_e = e::D;
+    REQUIRE(a_->m_e == e::D);
+    a_->m_e = e::E;
+    REQUIRE(a_->m_e == e::E);
+    a_->m_e = e::F;
+    REQUIRE(a_->m_e == e::F);
+}
+
+TEST_CASE("debug optional natsuki enum", "[optional_natsuki_enum_test][debug]")
+{
+    std::stringstream os;
+    optional_natsuki_enum_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_e: nullopt\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 2 optional natsuki enum", "[optional_natsuki_enum_test][debug]")
+{
+    std::stringstream os;
+    optional_natsuki_enum_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->m_e = e::F;
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_e: F\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}

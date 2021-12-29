@@ -1,0 +1,55 @@
+
+#include <catch2/catch.hpp>
+#include <optional>
+
+#define numPtr int*
+
+[[namespace=optional_custom_ptr_test]];
+[[visitable]];
+
+class a(ptr?: numPtr);
+
+public:
+{
+#include "optional_custom_ptr_test_debug.h"
+#include <sstream>
+
+TEST_CASE("optional custom ptr is nullptr", "[optional_custom_ptr_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->ptr == nullptr);
+}
+
+TEST_CASE("debug 1 optional int ptr", "[optional_custom_ptr_test][debug]")
+{
+    std::stringstream os;
+    optional_custom_ptr_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "ptr: nullptr\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 2 optional int ptr", "[optional_custom_ptr_test][debug]")
+{
+    std::stringstream os;
+    optional_custom_ptr_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->ptr = new int;
+    *a_->ptr = 4321987;
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "ptr: 4321987\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}

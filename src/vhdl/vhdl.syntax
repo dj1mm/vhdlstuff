@@ -1,0 +1,452 @@
+
+#include <unordered_map>
+#include <optional>
+#include <vector>
+
+// include relevant .h's
+#include "common/location.h"
+#include "vhdl/token.h"
+#include "vhdl/common.h"
+#include "vhdl_nodes.h"
+
+[[namespace=vhdl::syntax]];
+[[visitable]];
+
+// custom types
+#define char    char
+#define string  std::string
+#define token   vhdl::token
+#define bool    bool = false
+#define int     int = 0
+#define loc     common::location
+#define nmdntt  vhdl::node::named_entity*
+#define declrgn vhdl::node::declarative_region*
+
+// ----------------------------------------------------------------------------
+// Design entities and configurations
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 1.0
+// ----------------------------------------------------------------------------
+
+class component_specification(instantiation_list: instantiation_list_v, component: name);
+union instantiation_list_v {
+    class others(others: token);
+    class all   (all: token);
+    class labels(labels: token[]);
+};
+
+class configuration_item;
+-> class block_configuration    (label: name, index_specification: index_specification_v, uses: context_item[], items: configuration_item[]);
+-> class component_configuration(spec: component_specification, binding?: binding_indication, block?: block_configuration);
+
+// ----------------------------------------------------------------------------
+// Subprograms and packages
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 2.0
+// ----------------------------------------------------------------------------
+
+// LRM93 2.1 Subprogram declarations & LRM93 2.2 Subprogram bodies
+class subprogram(designator: token, parameters: declarative_item[], v: subprogram_v);
+union subprogram_v {
+    class procedure(result?: name);
+    class function (result:  name, pure: bool=false);
+};
+
+// LRM93 2.3.2 Signatures
+class signature(parameters: name[], result?: name);
+
+// ----------------------------------------------------------------------------
+// Types
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 3.0
+// ----------------------------------------------------------------------------
+
+class type_definition(identifier: token, v: type_definition_v);
+union type_definition_v {
+    class enumeration(literals: token[]);
+    class integer    (dimension: range);
+    class floating   (dimension: range);
+    class physical   (dimension: range, primary: unit_declaration, secondary: unit_declaration[]);
+    class c_array    (indices: range[], element: subtype);
+    class u_array    (index_subtypes: index_subtype[], element: subtype);
+    class record     (elements: element_declaration[]);
+    class access     (subtype: subtype);
+    class file       (mark: name);
+};
+
+// A subtype is a type with a constraint. A type is also a subtype of itself.
+class subtype      (resolution?: name, mark: name, constraint?: constraint);
+class index_subtype(                   mark: name                         );
+
+// Range and constraints
+//
+// Ranges can be specified in four different ways:
+// - ascending ranges.  Eg: 0 to 10             <- discrete range and ranges
+// - descending ranges. Eg: 10 downto 0
+// - a range attribute. Eg: customtype'range
+// - subtype indication Eg: range my_subtype    <- discrete range only
+class range(v: range_v);
+union range_v {
+    class subtype(indication: subtype);
+    class range  (attribute: name);
+    class upto   (v1: expression, v2: expression);
+    class downto (v1: expression, v2: expression);
+};
+
+union index_specification_v {
+    class discrete(range: range);
+    class expr    (expr : expression);
+};
+
+class constraint(v: constraint_v);
+union constraint_v {
+    class index(indices:   range[]);
+    class range(dimension: range);
+};
+
+// a unit declares either a primary unit or a secondary unit of a physical type
+class unit_declaration(identifier: token, multiplier?: physical_literal);
+class physical_literal(value?: token, unit: name);
+
+// Element declaration of a record type.
+class element_declaration(identifier: token[], type: subtype);
+
+// ----------------------------------------------------------------------------
+// Declarations
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 4.0
+// ----------------------------------------------------------------------------
+
+class declarative_item(v: declarative_item_v);
+union declarative_item_v {
+    // LRM93 4.1 Type declarations
+    class type(identifier: token, type?: type_definition);
+
+    // LRM93 4.2 Subtype declarations
+    class subtype(identifier: token, subtype: subtype);
+
+    // LRM93 4.3 Object declarations
+    class object   (v: object);
+
+    // LRM93 4.3 Interface object declarations
+    class interface(v: interface);
+
+    // LRM93 4.3.3 Alias declarations
+    class alias(designator: token, name: name, type?: subtype);
+
+    // LRM93 4.4 Attribute declarations
+    class attribute(identifier: token, type: name);
+
+    // LRM93 4.5 Component declarations
+    class component(identifier: token, gens: declarative_item[], ports: declarative_item[]);
+
+    // LRM93 5.1 Attribute specification
+    class attr_spec(designator: name, spec: entity_specification, value: expression);
+
+    class subprogram     (spec: subprogram);
+    class subprogram_body(spec: subprogram, decls: declarative_item[], stmts: sequential_statement[]);
+    class config_spec    (spec: component_specification, binding: binding_indication);
+    class use            (clause: context_item);
+};
+
+class object(identifier: token[], type: subtype, v: object_v, decl&: declarative_item);
+union object_v {
+    class constant(value?: expression);
+    class signal  (value?: expression, is_guarded: bool=false, is_bus: bool=false);
+    class variable(value?: expression, shared:     bool=false);
+    class file    (name ?: expression, mode: mode, open?: expression);
+};
+
+class interface(identifier: token[], type: subtype, v: interface_v, decl&: declarative_item);
+union interface_v {
+    class constant(value?: expression);
+    class signal  (value?: expression, mode: mode, bus: bool=false);
+    class variable(value?: expression, mode: mode);
+    class file    ();
+};
+
+// modes for interface elements
+enum mode {in, out, inout, buffer, linkage, invalid};
+
+// LRM93 4.3.2.2 Association lists
+class association_element(formal?: name, actual?: expression);
+
+// ----------------------------------------------------------------------------
+// Specifications
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 5.0
+// ----------------------------------------------------------------------------
+
+enum attr_kind {
+    unknown,
+
+    length, left, right, low, high, event, active, image, ascending,
+    last_value, last_event, path_name, instance_name, delayed, stable, quiet,
+    transaction, driving_value, last_active, driving, value, succ, pred,
+    leftof, rightof, pos, val, range,
+
+    user_defined
+};
+
+// LRM93 5.1 Attribute specification
+class entity_specification(entity_name_list: entity_name_list_v, entity_class: entity_class);
+union entity_name_list_v {
+    class name  (names: name[]);
+    class others(token: token);
+    class all   (token: token);
+};
+
+enum entity_class {
+    file, group,
+    entity, architecture, configuration, procedure, function, package, type,
+    subtype, constant, signal, variable, component, label, literal, units
+};
+
+// LRM93 5.2 Configuration specification
+class configuration_specification(spec: component_specification, binding: binding_indication);
+
+// LRM93 5.2.1 Binding indication
+class binding_indication(entity_aspect: entity_aspect_v, gens: association_element[], ports: association_element[]);
+union entity_aspect_v {
+    class entity       (name: name, architecture: token);
+    class configuration(name: name);
+    class open         ();
+};
+
+// ----------------------------------------------------------------------------
+// Names
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 6.0
+// ----------------------------------------------------------------------------
+
+class name(v: name_v);
+union name_v {
+    class error    (prefix?: name                                                                               );
+    class simple   (               identifier: token                                                            );
+    class selected (prefix:  name, identifier: token                                                            );
+    class slice    (prefix:  name,                        range: range                                          );
+    class fcall    (prefix:  name,                        params: association_element[]                         );
+    class ambiguous(prefix:  name,                        expression : expression[]                             );
+    class qualified(prefix:  name,                        expression : expression                               );
+    class attribute(prefix:  name, signature?: signature, expression?: expression, kind: attr_kind, attr?: token);
+    class signature(prefix:  name, signature?: signature                                                        );
+};
+
+// TODO FIXME:
+// a name must only denote at most one named entity. The current implementation
+// relaxes this requirement and is only a temporary measure. This needs to be
+// properly implemented in the future
+class name([[notvisitable,showptr]] denotes&: nmdntt[]);
+
+// ----------------------------------------------------------------------------
+// Expressions
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 7.0
+// ----------------------------------------------------------------------------
+
+class expression(v: expression_v);
+union expression_v {
+    class error      (expr?: expression);
+    class binary     (lhs: expression, op: op, rhs: expression);
+    class unary      (lhs: expression, op: op);
+    class literal    (token: token, kind: literal_kind);
+    class physical   (token: token, name: name);
+    class aggregate  (literal: element_association[]);
+    // either a function call, a qualified expression, or a type conversion
+    class unresolved (name: name);
+    class allocator  (expr: expression);
+    class nested     (expr: expression);
+    class null       ();
+};
+
+enum op {
+    op_and, op_or,  op_nand, op_nor, op_xor, op_xnor, // logical operations
+    op_eq,  op_neq, op_lt,   op_lte, op_gt,  op_gte,  // relational operations
+    op_sll, op_srl, op_sla,  op_sra, op_rol, op_ror,  // shift operations
+    op_add, op_sub, op_concat,                        // adding
+    u_add,  u_sub,                                    // sign
+    op_mul, op_div, op_mod,  op_rem,                  // multiplying
+    op_pow, op_abs, op_not,  error                    // misc
+};
+
+enum literal_kind { integer, real, based, enumeration, string, bitstring };
+
+class element_association(choices: choice[], expression: expression);
+
+class choice(v: choice_v);
+union choice_v {
+    class error ();
+    class name  (expression: expression);
+    class range (range: range);
+    class others();
+};
+
+// ----------------------------------------------------------------------------
+// Sequential statements
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 8.0
+// ----------------------------------------------------------------------------
+
+class sequential_statement(label?: token, v: sequential_statement_v);
+union sequential_statement_v {
+    class wait       (sensitivity: name[], condition?: expression, timeout?: expression);
+    class assertion  (condition: expression, report?: expression, severity?: expression);
+    class report     (                       report:  expression, severity?: expression);
+    class sig_assign (target: target, waveforms: waveform_element[], is_transport: bool, is_reject: bool, time?: expression, is_inertial: bool);
+    class var_assign (target: target, value: expression);
+    class pcall      (procedure: name);
+    class if_stmt    (condition?: expression, then: sequential_statement[], otherwise?: sequential_statement);
+    class for_loop   (param: param_spec,      loop: sequential_statement[]);
+    class while_loop (condition?: expression, loop: sequential_statement[]);
+    class case_stmt  (expression: expression, alternatives: case_statement_alternative[]);
+    class next       (next: token, when?: expression);
+    class exit       (loop: token, when?: expression);
+    class return_stmt(expression?: expression);
+    class null       (null: token);
+};
+
+class target(v: target_v);
+union target_v {
+    class name(name: name);
+    class expression(aggregate: expression);
+};
+
+class waveform_element(is_null: bool, value?: expression, time?: expression);
+
+class param_spec(identifier: token, in: range);
+
+class case_statement_alternative(choices: choice[], stmts: sequential_statement[]);
+
+// ----------------------------------------------------------------------------
+// Concurrent statements
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 9.0
+// ----------------------------------------------------------------------------
+
+class concurrent_statement(label?: token, v: concurrent_statement_v);
+union concurrent_statement_v {
+
+    class block(guard?: expression,
+        gens:  declarative_item[], gen_map:  association_element[],
+        ports: declarative_item[], port_map: association_element[],
+        decls: declarative_item[],  stmts:    concurrent_statement[]);
+
+    class process   (postponed: bool, sensitivity: name[], decls: declarative_item[], stmts: sequential_statement[]);
+    class pcall     (postponed: bool, procedure: name);
+    class assertion (postponed: bool, condition: expression, report?: expression, severity?: expression);
+    class con_assign(postponed: bool, target: target, waveforms: con_waveform[], is_guarded: bool, is_transport: bool, is_reject: bool, time?: expression, is_inertial: bool);
+    class sel_assign(postponed: bool, target: target, waveforms: sel_waveform[], is_guarded: bool, is_transport: bool, is_reject: bool, time?: expression, is_inertial: bool, value: expression);
+
+    class inst      (inst: instantiated_unit, gens: association_element[], ports: association_element[]);
+
+    class for_gen   (param: param_spec,     decls: declarative_item[], stmts: concurrent_statement[]);
+    class if_gen    (condition: expression, decls: declarative_item[], stmts: concurrent_statement[]);
+};
+
+class con_waveform(waveforms: waveform_element[], when?: expression);
+class sel_waveform(waveforms: waveform_element[], choices: choice[]);
+
+class instantiated_unit(v: instantiated_unit_v);
+union instantiated_unit_v {
+    class component(unit: name);
+    class entity   (unit: name, architecture: token);
+    class config   (unit: name);
+};
+
+// ----------------------------------------------------------------------------
+// Scope and Visibility
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM87
+// LRM93 10.0
+// LRM02 10.0
+// ----------------------------------------------------------------------------
+
+// LRM93 10.1 Declarative region
+//
+// A declarative region is formed by the text of the following vhdl constructs.
+union design_unit_v entity              ([[notvisitable]] region&: declrgn);
+union design_unit_v architecture        ([[notvisitable]] region&: declrgn);
+union design_unit_v package             ([[notvisitable]] region&: declrgn);
+union design_unit_v package_body        ([[notvisitable]] region&: declrgn);
+union design_unit_v configuration       ([[notvisitable]] region&: declrgn);
+union declarative_item_v subprogram     ([[notvisitable]] region&: declrgn);
+union declarative_item_v subprogram_body([[notvisitable]] region&: declrgn);
+union declarative_item_v component      ([[notvisitable]] region&: declrgn);
+union concurrent_statement_v inst       ([[notvisitable]] region&: declrgn);
+union concurrent_statement_v process    ([[notvisitable]] region&: declrgn);
+union concurrent_statement_v for_gen    ([[notvisitable]] region&: declrgn);
+union concurrent_statement_v if_gen     ([[notvisitable]] region&: declrgn);
+union type_definition_v record          ([[notvisitable]] region&: declrgn);
+
+// these are declarations, and each define a named entity when specified in a
+// vhdl file
+class design_unit        ([[notvisitable]] named_entity&: nmdntt);
+
+// ----------------------------------------------------------------------------
+// Design units and their analysis
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 11.0
+// ----------------------------------------------------------------------------
+
+class design_file([[visitable, cowned=owns_units]] units: design_unit[], src: char[], filename: string);
+
+class design_unit(file&: design_file, contexts: context_item[], v: design_unit_v);
+union design_unit_v {
+    class entity       (identifier: token,               decls: declarative_item[], stmts: concurrent_statement[], ports: declarative_item[], gens: declarative_item[]);
+    class architecture (identifier: token, entity: name, decls: declarative_item[], stmts: concurrent_statement[]);
+    class configuration(identifier: token, entity: name, decls: declarative_item[],   cfg: block_configuration);
+    class package      (identifier: token,               decls: declarative_item[]);
+    class package_body (identifier: token,               decls: declarative_item[]);
+};
+
+class context_item(v: context_item_v);
+union context_item_v {
+    class library_clause(names: token[]);
+    class use_clause(names: name[]);
+};
+
+// ----------------------------------------------------------------------------
+// Location information right in the syntax tree
+// ----------------------------------------------------------------------------
+class design_unit         (first__, __last: loc);
+class declarative_item    (first__, __last: loc);
+class concurrent_statement(first__, __last: loc);
+
+union design_unit_v entity        (port__, pl__, __pr, generic__, gl__, __gr?: loc);
+union declarative_item_v component(port__, pl__, __pr, generic__, gl__, __gr?: loc);
+union concurrent_statement_v inst (port__, pl__, __pr, generic__, gl__, __gr?: loc);
+
+union design_unit_v architecture (is__, __begin__, __end : loc);
+union design_unit_v package      (is__,            __end : loc);
+union design_unit_v package_body (is__,            __end : loc);
+union design_unit_v configuration(is__,            __end : loc);
+
+union concurrent_statement_v process   (process__ , __begin__, __end: loc);
+union concurrent_statement_v for_gen   (generate__,            __end: loc);
+union concurrent_statement_v if_gen    (generate__,            __end: loc);
+
+union sequential_statement_v if_stmt   (then__, __end: loc);
+union sequential_statement_v for_loop  (loop__, __end: loc);
+union sequential_statement_v while_loop(loop__, __end: loc);
+
+union declarative_item_v subprogram     (pl__, __pr?: loc);
+union declarative_item_v subprogram_body(pl__, __pr?: loc, is__, __begin__, __end: loc);
+
+class block_configuration    (for__, __end: loc);
+class component_configuration(for__, __end: loc);
+
+// ----------------------------------------------------------------------------
+// Misc operators
+// ----------------------------------------------------------------------------
+class design_unit private: { bool operator==(const design_unit&); };

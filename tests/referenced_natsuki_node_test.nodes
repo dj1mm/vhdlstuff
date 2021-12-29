@@ -1,0 +1,97 @@
+
+#include <catch2/catch.hpp>
+
+[[namespace=referenced_natsuki_node_test]];
+[[visitable]];
+
+#define int int = 0
+
+class a(m_b: b[], m_c: c[], m_b_refs&: b[]);
+class b(abcdef: int);
+class c(m_b&: b);
+
+public:
+{
+#include "referenced_natsuki_node_test_debug.h"
+#include <sstream>
+
+TEST_CASE("default node ref", "[referenced_natsuki_node_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->m_b.size() == 0);
+    REQUIRE(a_->m_c.size() == 0);
+    REQUIRE(a_->m_b_refs.size() == 0);
+}
+
+TEST_CASE("debug nullref", "[referenced_natsuki_node_test][debug]")
+{
+    std::stringstream os;
+    referenced_natsuki_node_test_debug debug(os, 2);
+
+    auto c_ = std::make_unique<c>();
+    c_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "C " << static_cast<void*>(c_.get()) <<  "\n";
+    ss << "m_b: nullref\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug natsuki ref", "[referenced_natsuki_node_test][debug]")
+{
+    std::stringstream os;
+    referenced_natsuki_node_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_b: []\n";
+    ss << "m_c: []\n";
+    ss << "m_b_refs: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug natsuki ref 2", "[referenced_natsuki_node_test][debug]")
+{
+    std::stringstream os;
+    referenced_natsuki_node_test_debug debug(os, 4);
+
+    auto a_ = std::make_unique<a>();
+    for (auto i = 0; i < 3; i++)
+    {
+        auto _b = new b;
+        auto _c = new c;
+        _c->m_b = _b;
+
+        a_->m_b.push_back(_b);
+        a_->m_b_refs.push_back(_b);
+        a_->m_c.push_back(_c);
+    }
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_b:\n";
+    ss << "  - B " << a_->m_b[0] << " abcdef: 0\n";
+    ss << "  - B " << a_->m_b[1] << " abcdef: 0\n";
+    ss << "  - B " << a_->m_b[2] << " abcdef: 0\n";
+    ss << "m_c:\n";
+    ss << "  - C " << a_->m_c[0] << "\n";
+    ss << "    m_b: B " << a_->m_c[0]->m_b << "\n";
+    ss << "  - C " << a_->m_c[1] << "\n";
+    ss << "    m_b: B " << a_->m_c[1]->m_b << "\n";
+    ss << "  - C " << a_->m_c[2] << "\n";
+    ss << "    m_b: B " << a_->m_c[2]->m_b << "\n";
+    ss << "m_b_refs:\n";
+    ss << "  - B " << a_->m_b[0] << "\n";
+    ss << "  - B " << a_->m_b[1] << "\n";
+    ss << "  - B " << a_->m_b[2] << "\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}

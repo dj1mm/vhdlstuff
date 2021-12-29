@@ -1,0 +1,155 @@
+
+#include <catch2/catch.hpp>
+#include <string>
+#include <vector>
+
+#define string std::string
+#define int int = 1234
+[[namespace=array_natsuki_node_test]];
+[[visitable]];
+
+class a(m_b: b[], m_c: c[]);
+class b;
+class c(number: int, str: string);
+
+public:
+{
+#include "array_natsuki_node_test_debug.h"
+#include <sstream>
+
+TEST_CASE("array node is empty", "[array_natsuki_node_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->m_b.size() == 0);
+    REQUIRE(a_->m_c.size() == 0);
+
+    // Require a_->__valid__()
+
+    a_->m_b.push_back(new b);
+    REQUIRE(a_->m_b.size() == 1);
+
+    a_->m_c.push_back(new c);
+    REQUIRE(a_->m_c.size() == 1);
+    REQUIRE(a_->m_c[0]->number == 1234);
+    REQUIRE(a_->m_c[0]->str == "");
+}
+
+TEST_CASE("array of nullptr bad", "[array_natsuki_node_test]")
+{
+    REQUIRE(true); // todo
+}
+
+TEST_CASE("debug 1 array node", "[array_natsuki_node_test][debug]")
+{
+    std::stringstream os;
+    array_natsuki_node_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_b: []\n";
+    ss << "m_c: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 2 array node", "[array_natsuki_node_test][debug]")
+{
+    std::stringstream os;
+    array_natsuki_node_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->m_b.push_back(new b);
+    a_->m_b.push_back(new b);
+    a_->m_b.push_back(new b);
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_b:\n";
+    ss << "- B " << a_->m_b[0] << "\n";
+    ss << "- B " << a_->m_b[1] << "\n";
+    ss << "- B " << a_->m_b[2] << "\n";
+    ss << "m_c: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 3 array node", "[array_natsuki_node_test][debug]")
+{
+    std::stringstream os;
+    array_natsuki_node_test_debug debug(os, 3);
+
+    auto a_ = std::make_unique<a>();
+    a_->m_b.push_back(new b);
+    a_->m_b.push_back(new b);
+    a_->m_b.push_back(new b);
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_b:\n";
+    ss << " - B " << a_->m_b[0] << "\n";
+    ss << " - B " << a_->m_b[1] << "\n";
+    ss << " - B " << a_->m_b[2] << "\n";
+    ss << "m_c: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 4 array node", "[array_natsuki_node_test][debug]")
+{
+    std::stringstream os;
+    array_natsuki_node_test_debug debug(os, 4);
+
+    auto a_ = std::make_unique<a>();
+    a_->m_b.push_back(new b);
+    a_->m_b.push_back(new b);
+    a_->m_b.push_back(new b);
+    a_->m_c.push_back(new c);
+    a_->m_c.push_back(new c);
+    a_->m_c.push_back(new c);
+    a_->m_c[0]->str = "ABCDEF";
+    a_->m_c[1]->str = "QWERTY";
+    a_->m_c[2]->str = "ZYXWVU";
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_b:\n";
+    ss << "  - B " << a_->m_b[0] << "\n";
+    ss << "  - B " << a_->m_b[1] << "\n";
+    ss << "  - B " << a_->m_b[2] << "\n";
+    ss << "m_c:\n";
+    ss << "  - C " << a_->m_c[0] << " number: 1234 str: ABCDEF\n";
+    ss << "  - C " << a_->m_c[1] << " number: 1234 str: QWERTY\n";
+    ss << "  - C " << a_->m_c[2] << " number: 1234 str: ZYXWVU\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("dont crash pwzzz", "[array_natsuki_node_test][debug]")
+{
+    std::stringstream os;
+    array_natsuki_node_test_debug debug(os, 3);
+
+    auto a_ = std::make_unique<a>();
+    a_->m_b.push_back(nullptr);
+    a_->m_b.push_back(nullptr);
+    a_->m_b.push_back(new b);
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "m_b:\n";
+    ss << " - nullptr\n";
+    ss << " - nullptr\n";
+    ss << " - B " << a_->m_b[2] << "\n";
+    ss << "m_c: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}

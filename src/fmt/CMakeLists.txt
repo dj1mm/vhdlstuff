@@ -1,0 +1,10 @@
+
+file(GLOB_RECURSE FMT_SOURCES *.cpp)
+file(GLOB_RECURSE FMT_HEADERS *.h)
+
+set(FMT_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_library(libfmt STATIC ${FMT_SOURCES})
+SET_TARGET_PROPERTIES(libfmt PROPERTIES PREFIX "")
+
+target_include_directories(libfmt PUBLIC ${FMT_INCLUDES})

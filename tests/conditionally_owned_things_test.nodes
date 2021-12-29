@@ -1,0 +1,171 @@
+
+#include <catch2/catch.hpp>
+#include <string>
+#include <optional>
+
+#define float float = 0.5
+#define int int = 1234
+
+[[namespace=conditionally_owned_things_test]];
+[[visitable]];
+
+class four_letters();
+-> class aaaa(number: int);
+-> class bbbb(number: float);
+-> class cccc();
+
+class a([[cowned]] fl: four_letters);
+class b([[cowned]] fl?: four_letters);
+
+public:
+{
+#include "conditionally_owned_things_test_debug.h"
+#include <sstream>
+
+TEST_CASE("cowned default is false", "[conditionally_owned_things_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->_owns_fields == false);
+    REQUIRE(a_->fl == nullptr);
+}
+
+TEST_CASE("debug not owned cown but is empty", "[conditionally_owned_things_test][debug]")
+{
+    std::stringstream os;
+    conditionally_owned_things_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->_owns_fields = false;
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << " _owns_fields: 0\n";
+    ss << "fl: nullref\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug owned cown but is empty", "[conditionally_owned_things_test][debug]")
+{
+    std::stringstream os;
+    conditionally_owned_things_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->_owns_fields = true;
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << " _owns_fields: 1\n";
+    ss << "fl: nullptr\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug owned cown and is not empty", "[conditionally_owned_things_test][debug]")
+{
+    std::stringstream os;
+    conditionally_owned_things_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->_owns_fields = true;
+    a_->fl = new aaaa;
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << " _owns_fields: 1\n";
+    ss << "fl:\n";
+    ss << "  Aaaa " << a_->fl << " number: 1234\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug referenced cown and is not empty", "[conditionally_owned_things_test][debug]")
+{
+    std::stringstream os;
+    conditionally_owned_things_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->_owns_fields = false;
+    a_->fl = new aaaa;
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << " _owns_fields: 0\n";
+    ss << "fl: Aaaa " << a_->fl << "\n";
+
+    delete a_->fl;
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug not owned optional conditionally owned ptr but is empty", "[conditionally_owned_things_test][debug]")
+{
+    std::stringstream os;
+    conditionally_owned_things_test_debug debug(os, 2);
+
+    auto b_ = std::make_unique<b>();
+    b_->_owns_fields = false;
+    b_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "B " << static_cast<void*>(b_.get()) << " _owns_fields: 0\n";
+    ss << "fl: nullptr\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug owned optional conditionally owned ptr but is empty", "[conditionally_owned_things_test][debug]")
+{
+    std::stringstream os;
+    conditionally_owned_things_test_debug debug(os, 2);
+
+    auto b_ = std::make_unique<b>();
+    b_->_owns_fields = true;
+    b_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "B " << static_cast<void*>(b_.get()) << " _owns_fields: 1\n";
+    ss << "fl: nullptr\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug owned optional conditionally owned ptr and is not empty", "[conditionally_owned_things_test][debug]")
+{
+    std::stringstream os;
+    conditionally_owned_things_test_debug debug(os, 2);
+
+    auto b_ = std::make_unique<b>();
+    b_->_owns_fields = true;
+    b_->fl = new bbbb;
+    b_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "B " << static_cast<void*>(b_.get()) << " _owns_fields: 1\n";
+    ss << "fl:\n";
+    ss << "  Bbbb " << b_->fl << " number: 0.5\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug referenced optional conditionally owned ptr and is not empty", "[conditionally_owned_things_test][debug]")
+{
+    std::stringstream os;
+    conditionally_owned_things_test_debug debug(os, 2);
+
+    auto b_ = std::make_unique<b>();
+    b_->_owns_fields = false;
+    b_->fl = new bbbb;
+    b_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "B " << static_cast<void*>(b_.get()) << " _owns_fields: 0\n";
+    ss << "fl: Bbbb " << b_->fl << "\n";
+
+    delete b_->fl;
+
+    REQUIRE(ss.str() == os.str());
+}
+
+
+}

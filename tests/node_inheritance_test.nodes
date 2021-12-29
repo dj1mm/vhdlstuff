@@ -1,0 +1,340 @@
+
+#include <catch2/catch.hpp>
+#include <string>
+
+#define string std::string
+#define int int = 0
+#define bool bool = false
+
+[[namespace=node_inheritance_test]];
+[[visitable]];
+
+class mom_or_dad(
+    m_first_child: child, m_second_child: child,
+    m_optional_third_child?: child,
+    m_nephews: child[],
+
+    m_reference_to_first_child&: child,
+    m_reference_to_all_my_children&: child[]
+);
+
+class child;
+-> class son(boyname: string);
+-> class daughter(girlname: string, likes_pink: bool);
+
+public:
+{
+#include "node_inheritance_test_debug.h"
+#include <sstream>
+
+TEST_CASE("node inheritance", "[node_inheritance_test]")
+{
+    auto p = std::make_unique<mom_or_dad>();
+    // Require !p->__valid__()
+
+    p->m_first_child = new son;
+    REQUIRE(p->m_first_child->as_son()->boyname == "");
+
+    p->m_second_child = new daughter;
+    REQUIRE(p->m_second_child->as_daughter()->girlname == "");
+    REQUIRE(p->m_second_child->as_daughter()->likes_pink == false);
+    // Require p->__valid__()
+
+    p->m_first_child->as_son()->boyname = "johnny";
+    p->m_second_child->as_daughter()->girlname = "monika";
+    p->m_second_child->as_daughter()->likes_pink = true;
+
+    REQUIRE(p->m_first_child->as_son()->boyname == "johnny");
+    REQUIRE(p->m_second_child->as_daughter()->girlname == "monika");
+    REQUIRE(p->m_second_child->as_daughter()->likes_pink == true);
+
+    REQUIRE(p->m_optional_third_child == nullptr);
+    REQUIRE(p->m_nephews.size() == 0);
+
+}
+
+TEST_CASE("dbg inherit 1", "[node_inheritance_test][debug]")
+{
+    std::stringstream os;
+    node_inheritance_test_debug debug(os, 2);
+
+    auto p = std::make_unique<mom_or_dad>();
+    p->traverse(debug);
+
+    std::stringstream ss;
+    ss << "Mom_Or_Dad " << static_cast<void*>(p.get()) <<  "\n";
+    ss << "m_first_child: nullptr\n";
+    ss << "m_second_child: nullptr\n";
+    ss << "m_optional_third_child: nullptr\n";
+    ss << "m_nephews: []\n";
+    ss << "m_reference_to_first_child: nullref\n";
+    ss << "m_reference_to_all_my_children: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("dbg inherit 2", "[node_inheritance_test][debug]")
+{
+    std::stringstream os;
+    node_inheritance_test_debug debug(os, 2);
+
+    auto p = std::make_unique<mom_or_dad>();
+    auto first = new son;
+    first->boyname = "aloha";
+    p->m_first_child = first;
+    p->traverse(debug);
+
+    std::stringstream ss;
+    ss << "Mom_Or_Dad " << static_cast<void*>(p.get()) <<  "\n";
+    ss << "m_first_child:\n";
+    ss << "  Son " << first << " boyname: aloha\n";
+    ss << "m_second_child: nullptr\n";
+    ss << "m_optional_third_child: nullptr\n";
+    ss << "m_nephews: []\n";
+    ss << "m_reference_to_first_child: nullref\n";
+    ss << "m_reference_to_all_my_children: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("dbg inherit 3", "[node_inheritance_test][debug]")
+{
+    std::stringstream os;
+    node_inheritance_test_debug debug(os, 2);
+
+    auto p = std::make_unique<mom_or_dad>();
+    auto first = new son;
+    first->boyname = "english";
+    p->m_first_child = first;
+
+    auto second = new daughter;
+    second->girlname = "french";
+    p->m_second_child = second;
+    p->traverse(debug);
+
+    std::stringstream ss;
+    ss << "Mom_Or_Dad " << static_cast<void*>(p.get()) <<  "\n";
+    ss << "m_first_child:\n";
+    ss << "  Son " << first << " boyname: english\n";
+    ss << "m_second_child:\n";
+    ss << "  Daughter " << second << " girlname: french likes_pink: 0\n";
+    ss << "m_optional_third_child: nullptr\n";
+    ss << "m_nephews: []\n";
+    ss << "m_reference_to_first_child: nullref\n";
+    ss << "m_reference_to_all_my_children: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("dbg inherit 4", "[node_inheritance_test][debug]")
+{
+    std::stringstream os;
+    node_inheritance_test_debug debug(os, 2);
+
+    auto p = std::make_unique<mom_or_dad>();
+    auto first = new son;
+    first->boyname = "english";
+    p->m_first_child = first;
+
+    auto second = new daughter;
+    second->girlname = "french";
+    p->m_second_child = second;
+
+    auto third = new daughter;
+    third->girlname = "italian";
+    p->m_optional_third_child = third;
+    p->traverse(debug);
+
+    std::stringstream ss;
+    ss << "Mom_Or_Dad " << static_cast<void*>(p.get()) <<  "\n";
+    ss << "m_first_child:\n";
+    ss << "  Son " << first << " boyname: english\n";
+    ss << "m_second_child:\n";
+    ss << "  Daughter " << second << " girlname: french likes_pink: 0\n";
+    ss << "m_optional_third_child:\n";
+    ss << "  Daughter " << third << " girlname: italian likes_pink: 0\n";
+    ss << "m_nephews: []\n";
+    ss << "m_reference_to_first_child: nullref\n";
+    ss << "m_reference_to_all_my_children: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("dbg inherit 5", "[node_inheritance_test][debug]")
+{
+    std::stringstream os;
+    node_inheritance_test_debug debug(os, 2);
+
+    auto p = std::make_unique<mom_or_dad>();
+    auto first = new son;
+    first->boyname = "english";
+    p->m_first_child = first;
+
+    auto second = new daughter;
+    second->girlname = "french";
+    p->m_second_child = second;
+
+    auto third = new daughter;
+    third->girlname = "italian";
+    p->m_optional_third_child = third;
+
+    for (int i = 0; i < 2; i++)
+    {
+        auto n = new son;
+        n->boyname = "qwetyu";
+        p->m_nephews.push_back(n);
+    }
+
+    p->traverse(debug);
+
+    std::stringstream ss;
+    ss << "Mom_Or_Dad " << static_cast<void*>(p.get()) <<  "\n";
+    ss << "m_first_child:\n";
+    ss << "  Son " << first << " boyname: english\n";
+    ss << "m_second_child:\n";
+    ss << "  Daughter " << second << " girlname: french likes_pink: 0\n";
+    ss << "m_optional_third_child:\n";
+    ss << "  Daughter " << third << " girlname: italian likes_pink: 0\n";
+    ss << "m_nephews:\n";
+    ss << "- Son " << p->m_nephews[0] << " boyname: qwetyu\n";
+    ss << "- Son " << p->m_nephews[1] << " boyname: qwetyu\n";
+    ss << "m_reference_to_first_child: nullref\n";
+    ss << "m_reference_to_all_my_children: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("dbg inherit 6", "[node_inheritance_test][debug]")
+{
+    std::stringstream os;
+    node_inheritance_test_debug debug(os, 2);
+
+    auto p = std::make_unique<mom_or_dad>();
+    auto first = new son;
+    first->boyname = "english";
+    p->m_first_child = first;
+
+    auto second = new daughter;
+    second->girlname = "french";
+    p->m_second_child = second;
+
+    auto third = new daughter;
+    third->girlname = "italian";
+    p->m_optional_third_child = third;
+
+    p->m_reference_to_first_child = first;
+
+    p->traverse(debug);
+
+    std::stringstream ss;
+    ss << "Mom_Or_Dad " << static_cast<void*>(p.get()) <<  "\n";
+    ss << "m_first_child:\n";
+    ss << "  Son " << first << " boyname: english\n";
+    ss << "m_second_child:\n";
+    ss << "  Daughter " << second << " girlname: french likes_pink: 0\n";
+    ss << "m_optional_third_child:\n";
+    ss << "  Daughter " << third << " girlname: italian likes_pink: 0\n";
+    ss << "m_nephews: []\n";
+    ss << "m_reference_to_first_child: Son " << first << "\n";
+    ss << "m_reference_to_all_my_children: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("dbg inherit 7", "[node_inheritance_test][debug]")
+{
+    std::stringstream os;
+    node_inheritance_test_debug debug(os, 2);
+
+    auto p = std::make_unique<mom_or_dad>();
+    auto first = new son;
+    first->boyname = "english";
+    p->m_first_child = first;
+
+    auto second = new daughter;
+    second->girlname = "french";
+    p->m_second_child = second;
+
+    p->m_reference_to_all_my_children.push_back(first);
+    p->m_reference_to_all_my_children.push_back(second);
+
+    p->traverse(debug);
+
+    std::stringstream ss;
+    ss << "Mom_Or_Dad " << static_cast<void*>(p.get()) <<  "\n";
+    ss << "m_first_child:\n";
+    ss << "  Son " << first << " boyname: english\n";
+    ss << "m_second_child:\n";
+    ss << "  Daughter " << second << " girlname: french likes_pink: 0\n";
+    ss << "m_optional_third_child: nullptr\n";
+    ss << "m_nephews: []\n";
+    ss << "m_reference_to_first_child: nullref\n";
+    ss << "m_reference_to_all_my_children:\n";
+    ss << "- Son " << first << "\n";
+    ss << "- Daughter " << second << "\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("nullptr in an array of references not allowed. But we print nullref anyway, jz not to crash", "[node_inheritance_test][debug]")
+{
+    std::stringstream os;
+    node_inheritance_test_debug debug(os, 2);
+
+    auto p = std::make_unique<mom_or_dad>();
+    auto first = new son;
+    first->boyname = "1";
+    p->m_first_child = first;
+
+    auto second = new daughter;
+    second->girlname = "2";
+    p->m_second_child = second;
+
+    p->m_reference_to_first_child = first;
+
+    p->m_reference_to_all_my_children.push_back(nullptr);
+
+    p->traverse(debug);
+
+    std::stringstream ss;
+    ss << "Mom_Or_Dad " << static_cast<void*>(p.get()) <<  "\n";
+    ss << "m_first_child:\n";
+    ss << "  Son " << first << " boyname: 1\n";
+    ss << "m_second_child:\n";
+    ss << "  Daughter " << second << " girlname: 2 likes_pink: 0\n";
+    ss << "m_optional_third_child: nullptr\n";
+    ss << "m_nephews: []\n";
+    ss << "m_reference_to_first_child: Son " << first << "\n";
+    ss << "m_reference_to_all_my_children:\n";
+    ss << "- nullref\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}
+
+class xyz(true_or_false: bool, word1: string);
+-> class abc(word2: string);
+-> class def(word3: string, number: int);
+
+public:
+{
+
+TEST_CASE("properties of parent must be displayed", "[node_inheritance_test][debug]")
+{
+    std::stringstream os;
+    node_inheritance_test_debug debug(os, 2);
+
+    auto one = std::make_unique<abc>();
+    one->word2 = "this_is_the_word";
+    one->word1 = "where_is_this";
+
+    one->traverse(debug);
+
+    std::stringstream ss;
+    ss << "Abc " << static_cast<void*>(one.get()) <<  " word2: this_is_the_word true_or_false: 0 word1: where_is_this\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}

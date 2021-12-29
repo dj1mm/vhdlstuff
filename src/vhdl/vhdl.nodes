@@ -1,0 +1,220 @@
+
+// include relevant .h's
+#include <memory>
+#include <optional>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+#include "common/location.h"
+#include "vhdl/common.h"
+#include "vhdl_syntax.h"
+
+#define bool    bool = false
+#define loc     common::location
+#define desunit vhdl::syntax::design_unit*
+#define typedef vhdl::syntax::type_definition*
+
+#define vhdlast  vhdl::ast*
+#define stringv  std::string_view
+
+[[namespace=vhdl::node]];
+[[visitable]];
+
+
+// ----------------------------------------------------------------------------
+// Types
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 3.0
+//
+// Implement the canonical types and subtypes
+// ----------------------------------------------------------------------------
+
+// Syntax field is optional.
+// If not null, this type is explicitly declared in the vhdl text.
+// If     null, this type is implicitly declared by subtype indications.
+class type([[istrait, notvisitable, showptr]] syntax&: typedef);
+-> class record;
+
+// ----------------------------------------------------------------------------
+// Scope and Visibility
+// ----------------------------------------------------------------------------
+// Implements vhdl nodes for these chapters from the VHDL LRM:
+// LRM93 10.0
+// ----------------------------------------------------------------------------
+
+// the vhdl lrm is not very clear about the concept of a *named entity* and how
+// it should be implemented. Actually the lrm makes it confusing because it
+// defines a completely unrelated construct with a completely different purpose
+// - the entity declaration - with a somewhat similar name.
+//
+// From my very humble interpretation, an *entity* not to be confused with an
+// entity declaration, is effectively a basic vhdl construct. In c++, entities
+// are: objects, types, references,templates etc - and these are the basic
+// construct of the c++ language. In vhdl, *entities* are the core constructs
+// of the vhdl language and are as follows: (At least, this is what vhdlstuff
+// thinks is an *entity*)
+//
+// A *named entity* is simply an *entity* with a name.
+//
+// According to the lrm, a *named entity* is something that is 'associated with
+// an identifier, a character literal, or an operator symbol' and is a 'result
+// of a declaration'.
+class named_entity([[istrait]] identifier: stringv);
+-> class typedecl(type: type);
+-> class subtype;
+-> class constant;
+-> class signal;
+-> class variable;
+-> class file;
+-> class alias;
+-> class entity;
+-> class architecture;
+-> class configuration;
+-> class package;
+-> class package_body;
+-> class function;
+-> class procedure;
+-> class component;
+-> class literal;
+-> class element;
+-> class library;
+
+// these nodes have type
+class constant([[cowned=owns_type]] type: type);
+class signal  ([[cowned=owns_type]] type: type);
+class variable([[cowned=owns_type]] type: type);
+class file    ([[cowned=owns_type]] type: type);
+class element ([[cowned=owns_type]] type: type);
+
+class named_entity  private: { std::string_view virtual get_identifier() = 0; }
+       [[istrait]]  private: { std::string_view virtual get_identifier(); };
+class entity        private: { entity       (vhdl::syntax::design_unit*);           vhdl::syntax::design_unit* u; };
+class architecture  private: { architecture (vhdl::syntax::design_unit*);           vhdl::syntax::design_unit* u; };
+class configuration private: { configuration(vhdl::syntax::design_unit*);           vhdl::syntax::design_unit* u; };
+class package       private: { package      (vhdl::syntax::design_unit*);           vhdl::syntax::design_unit* u; };
+class package_body  private: { package_body (vhdl::syntax::design_unit*);           vhdl::syntax::design_unit* u; };
+class typedecl      private: { typedecl     (vhdl::syntax::declarative_item*);      vhdl::syntax::declarative_item* d; };
+class subtype       private: { subtype      (vhdl::syntax::declarative_item*);      vhdl::syntax::declarative_item* d; };
+class constant      private: { constant     (vhdl::syntax::declarative_item*, int); vhdl::syntax::declarative_item* d; bool is_interface(); int index = 0; };
+class signal        private: { signal       (vhdl::syntax::declarative_item*, int); vhdl::syntax::declarative_item* d; bool is_interface(); int index = 0; };
+class variable      private: { variable     (vhdl::syntax::declarative_item*, int); vhdl::syntax::declarative_item* d; bool is_interface(); int index = 0; };
+class file          private: { file         (vhdl::syntax::declarative_item*, int); vhdl::syntax::declarative_item* d; bool is_interface(); int index = 0; };
+class alias         private: { alias        (vhdl::syntax::declarative_item*);      vhdl::syntax::declarative_item* d; };
+class function      private: { function     (vhdl::syntax::declarative_item*);      vhdl::syntax::declarative_item* d; };
+class procedure     private: { procedure    (vhdl::syntax::declarative_item*);      vhdl::syntax::declarative_item* d; bool is_body(); };
+class component     private: { component    (vhdl::syntax::declarative_item*);      vhdl::syntax::declarative_item* d; };
+class element       private: { element      (vhdl::syntax::element_declaration*, int); vhdl::syntax::element_declaration* e; int index = 0; };
+class library       private: { library      (vhdl::syntax::context_item*, int);        vhdl::syntax::context_item* c;        int index = 0; };
+class literal       private: { literal      (vhdl::syntax::type_definition*, int);     vhdl::syntax::type_definition* t;     int index = 0; };
+
+class direct_visibility(entities&: named_entity[]);
+
+
+//
+// A declarative region is what the vhdl lrm refers to as a region of text
+// where declarations declare named entities.
+//
+// A declarative region:
+//
+// - has one outer/parent scope
+// - has as many inner/child scopes as needed
+// - is associated to at most one corresponding declaration or statement
+[[noctor]]
+class declarative_region(
+
+    // non owning pointer to the outer declarative region. null if this is the
+    // outermost declarative region
+    outer&: declarative_region,
+
+    // inner declarative regions contained within this declarative region
+    inner: declarative_region[],
+
+    // Some declarative region can extend other declarative regions
+    extends&: declarative_region,
+
+    potentially_visible: direct_visibility[],
+
+    // owning pointer to the unnamed declarations/statements contained in this
+    // declarative region.
+    unnamed_entities: named_entity[],
+
+    // owning pointer to the invalid named declarations/statements contained in
+    // this declarative region. Because these are invalid, they should not be
+    // included in name lookup
+    invalid_entities: named_entity[],
+
+    // owning pointer to the named declarations/statements contained in this
+    // declarative region.
+    named_entities: named_entity[]
+)
+private: {
+
+    // create a declarative region given a parent region and its corresponding
+    // vhdl node
+    declarative_region(declarative_region* parent = nullptr);
+
+    // no copy, yes default move ctor and assigns
+    declarative_region(const declarative_region&) = delete;
+    declarative_region(declarative_region&&) = default;
+    declarative_region& operator=(const declarative_region&) = delete;
+    declarative_region& operator=(declarative_region&&) = default;
+
+
+    // LRM93 10.1 Declarative region
+    // LRM02 10.1 Declarative region
+    //
+    // Non owning pointer to the vhdl syntax object (the syntax object must be
+    // a declarative region, that is: it can contain declarations or statements
+    // ) corresponding to this declarative region.
+    //
+    // This field is nullable. In this case, this declarative region is a plain
+    // semantic scope. For eg: scope of a port map within an entity declaration
+    enum class v_ {
+        none,
+        entity,
+        architecture,
+        configuration,
+        package,
+        package_body,
+        subprogram,
+        subprogram_body,
+        component,
+        instantiation,
+        process,
+        for_gen,
+        if_gen,
+        record,
+    };
+    v_ v_kind = v_::none;
+    union {
+        vhdl::syntax::design_unit* entity;
+        vhdl::syntax::design_unit* architecture;
+        vhdl::syntax::design_unit* configuration;
+        vhdl::syntax::design_unit* package;
+        vhdl::syntax::design_unit* package_body;
+        vhdl::syntax::declarative_item* subprogram;
+        vhdl::syntax::declarative_item* subprogram_body;
+        vhdl::syntax::declarative_item* component;
+        vhdl::syntax::concurrent_statement* instantiation;
+        vhdl::syntax::concurrent_statement* process;
+        vhdl::syntax::concurrent_statement* for_gen;
+        vhdl::syntax::concurrent_statement* if_gen;
+        vhdl::syntax::type_definition* record;
+    } v;
+};
+
+
+
+class library(ast&: vhdlast);
+
+enum  library_unit_state { outdated, parsed, analysing, analysed };
+class library_unit([[showptr]] syntax: desunit, root_declarative_region: declarative_region, state: library_unit_state)
+private: {
+    std::shared_ptr<vhdl::syntax::design_file> file;
+    std::vector<std::shared_ptr<library_unit>> dependencies;
+    std::vector<std::weak_ptr<library_unit>> references;
+};
+
+

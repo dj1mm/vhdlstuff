@@ -1,0 +1,59 @@
+
+#include <catch2/catch.hpp>
+#include <vector>
+
+#define numPtr int*
+
+[[namespace=array_custom_ptr_test]];
+[[visitable]];
+
+class a(ptr: numPtr[]);
+
+public:
+{
+#include "array_custom_ptr_test_debug.h"
+#include <sstream>
+
+TEST_CASE("array custom ptr", "[array_custom_ptr_test]")
+{
+    auto a_ = std::make_unique<a>();
+    REQUIRE(a_->ptr.size() == 0);
+}
+
+TEST_CASE("debug 1 array ptrs", "[array_custom_ptr_test][debug]")
+{
+    std::stringstream os;
+    array_custom_ptr_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "ptr: []\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+TEST_CASE("debug 2 array ptrs", "[array_custom_ptr_test][debug]")
+{
+    std::stringstream os;
+    array_custom_ptr_test_debug debug(os, 2);
+
+    auto a_ = std::make_unique<a>();
+    for (int i = 0; i < 50; i+=10)
+    {
+        auto num = new int;
+        *num = i;
+        a_->ptr.push_back(num);
+    }
+    a_->traverse(debug);
+
+    std::stringstream ss;
+    ss << "A " << static_cast<void*>(a_.get()) << "\n";
+    ss << "ptr: [0, 10, 20, 30, 40]\n";
+
+    REQUIRE(ss.str() == os.str());
+}
+
+}

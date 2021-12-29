@@ -1,0 +1,10 @@
+
+file(GLOB_RECURSE BIGINT_SOURCES *.cpp)
+file(GLOB_RECURSE BIGINT_HEADERS *.h)
+
+set(BIGINT_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_library(libbigint STATIC ${BIGINT_SOURCES})
+SET_TARGET_PROPERTIES(libbigint PROPERTIES PREFIX "")
+
+target_include_directories(libbigint PUBLIC ${BIGINT_INCLUDES})
