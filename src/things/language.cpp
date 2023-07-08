@@ -3,12 +3,6 @@
 
 #include "common/loguru.h"
 #include "vhdl/ast.h"
-
-#include "definition_provider.h"
-#include "document_symbol_provider.h"
-#include "folding_range_provider.h"
-#include "hover_provider.h"
-
 things::language::language(lsp::connection* connection)
     : server(connection), client(frontend.get()), project(this, &client),
       working_files(this, &client, false)
@@ -156,32 +150,9 @@ void things::language::on_text_document_folding_range(
 {
     LOG_S(INFO) << "Language Server textDocument/foldingRange";
 
-    auto calculate_folding_ranges =
-        [r = request](std::shared_ptr<vhdl::ast> ast) {
-
-            if (!ast || !ast->get_main_file()) {
-                r->reply(json::string("[]"));
-                return;
-            }
-
-        {
-        rapidjson::StringBuffer s;
-        rapidjson::Writer<rapidjson::StringBuffer> w(s);
-
-        w.StartArray();
-        vhdl_folding_range_provider d(&w);
-        ast->get_main_file()->traverse(d);
-        w.EndArray();
-    
-        json::string json = s.GetString();
-        r->reply(json);
-        }
-    };
-
     auto param = serialize::from_json<lsp::folding_range_params>(
         request->params.value());
-    working_files.run_with_ast(param.text_document.uri.get_path(),
-                               calculate_folding_ranges);
+    working_files.folding_ranges(param.text_document.uri.get_path(), request);
 }
 
 void things::language::on_text_document_symbol(
@@ -189,32 +160,9 @@ void things::language::on_text_document_symbol(
 {
     LOG_S(INFO) << "Language Server textDocument/documentSymbol";
 
-    auto get_document_symbols = [r = request](std::shared_ptr<vhdl::ast> ast) {
-
-        if (!ast || !ast->get_main_file()) {
-            r->reply(json::string("[]"));
-            return;
-        }
-
-        {
-        rapidjson::StringBuffer s;
-        rapidjson::Writer<rapidjson::StringBuffer> w(s);
-
-        w.StartArray();
-        vhdl_document_symbol_provider d(&w);
-        ast->get_main_file()->traverse(d);
-        
-        w.EndArray();
-    
-        json::string json = s.GetString();
-        r->reply(json);
-        }
-    };
-
     auto param = serialize::from_json<lsp::document_symbols_params>(
         request->params.value());
-    working_files.run_with_ast(param.text_document.uri.get_path(),
-                               get_document_symbols);
+    working_files.symbols(param.text_document.uri.get_path(), request);
 }
 
 void things::language::on_text_document_hover(
@@ -224,34 +172,8 @@ void things::language::on_text_document_hover(
 
     auto param = serialize::from_json<lsp::text_document_hover_params>(
         request->params.value());
-
     common::position pos(param.position.line + 1, param.position.character + 1);
-    auto get_hover = [r = request, pos](std::shared_ptr<vhdl::ast> ast) {
-        if (!ast || !ast->get_main_file())
-        {
-            r->reply(json::null_value);
-            return;
-        }
-
-        {
-        rapidjson::StringBuffer s;
-        rapidjson::Writer<rapidjson::StringBuffer> w(s);
-
-        bool found = false;
-        vhdl_hover_provider d(&w, found, pos);
-        ast->get_main_file()->traverse(d);
-    
-        if (!found) {
-            r->reply(json::null_value);
-            return;
-        }
-
-        json::string json = s.GetString();
-        r->reply(json);
-        }
-    };
-
-    working_files.run_with_ast(param.text_document.uri.get_path(), get_hover);
+    working_files.hover(param.text_document.uri.get_path(), request, pos);
 }
 
 void things::language::on_text_document_definition(
@@ -261,35 +183,8 @@ void things::language::on_text_document_definition(
 
     auto param = serialize::from_json<lsp::text_document_hover_params>(
         request->params.value());
-
     common::position pos(param.position.line + 1, param.position.character + 1);
-    auto get_definition = [r = request, pos](std::shared_ptr<vhdl::ast> ast) {
-        if (!ast || !ast->get_main_file())
-        {
-            r->reply(json::null_value);
-            return;
-        }
-
-        {
-        rapidjson::StringBuffer s;
-        rapidjson::Writer<rapidjson::StringBuffer> w(s);
-
-        bool found = false;
-        vhdl_definition_provider d(&w, found, pos);
-        ast->get_main_file()->traverse(d);
-    
-        if (!found) {
-            r->reply(json::null_value);
-            return;
-        }
-
-        json::string json = s.GetString();
-        r->reply(json);
-        }
-    };
-
-    working_files.run_with_ast(param.text_document.uri.get_path(),
-                               get_definition);
+    working_files.definition(param.text_document.uri.get_path(), request, pos);
 }
 
 void things::language::on_workspace_did_change_watched_files(

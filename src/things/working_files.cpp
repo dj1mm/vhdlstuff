@@ -1,31 +1,20 @@
 
 #include "working_files.h"
 
-#include "client.h"
 #include "language.h"
-#include "project.h"
 
-#include "common/loguru.h"
 #include "common/scope_guard.h"
-#include "vhdl/ast.h"
-#include "vhdl/binder.h"
 
-namespace Err
+#include "definition_provider.h"
+#include "document_symbol_provider.h"
+#include "folding_range_provider.h"
+#include "hover_provider.h"
+
+things::working_file::working_file(std::string file, things::client* client,
+                                   things::project* prj)
+    : file_(file), policy(run_on_main_thread), client_(client), project_(prj),
+      current_project_version_(0), library_fully_loaded_(false)
 {
-    std::string_view File_not_found = "{} not found.";
-    std::string_view File_not_in_lib = "To enjoy full vhdl language services, please add this file to vhdl_config.yaml.";
-    std::string_view Loading_prj = "To enjoy full vhdl language services, make sure there is a valid vhdl_config.yaml configuration.";
-    std::string_view Library_not_loaded = "Indexer is still running. Ignoring {} errors.";
-};
-
-things::working_file::working_file(
-    std::string file,
-    std::function<void(std::string, std::vector<common::diagnostic>)> cb,
-    things::project* prj)
-    : file_(file), policy(run_on_main_thread), send_diagnostics_(cb),
-      project_(prj), current_project_version_(0), library_fully_loaded_(false)
-{
-
 }
 
 things::working_file::~working_file()
@@ -58,6 +47,12 @@ things::working_file::~working_file()
         thread.detach();
 }
 
+void things::working_file::invalidate_potentially_referenced_file(std::string f)
+{
+    std::unique_lock<std::mutex> lock(mutex_to_invalidate_files_);
+    list_of_potentially_referenced_files_now_invalid.push_back(f);
+}
+
 void things::working_file::forever_loop()
 {
     while (true)
@@ -88,55 +83,6 @@ void things::working_file::stop()
     cv_.notify_one();
 }
 
-void things::working_file::run_with_ast(
-    std::function<void(std::shared_ptr<vhdl::ast>)> callback)
-{
-    auto run_that = [this, that = std::move(callback)](bool is_superseded) {
-        if (is_superseded)
-        {
-            that(nullptr);
-            return;
-        }
-
-        make_sure_this_is_latest_project_version_();
-
-        auto was_already_uptodate = ast->update();
-
-        if (!was_already_uptodate)
-            send_diagnostics_back_to_client_if_needed_();
-
-        that(ast);
-    };
-
-    return add_task("run_with_ast", std::move(run_that));
-}
-
-void things::working_file::update()
-{
-    auto analyse_and_diagnose = [this](bool is_superseded) {
-        if (is_superseded)
-            return;
-
-        make_sure_this_is_latest_project_version_();
-
-        if (list_of_potentially_invalidated_reference_files.size())
-        {
-            for (auto it : list_of_potentially_invalidated_reference_files)
-            {
-                ast->invalidate_reference_file(it);
-            }
-            list_of_potentially_invalidated_reference_files.clear();
-        }
-
-        ast->invalidate_main_file();
-        ast->update();
-
-        send_diagnostics_back_to_client_if_needed_();
-    };
-
-    return add_task("update", std::move(analyse_and_diagnose));
-}
-
 void things::working_file::add_task(std::string name,
                                     std::function<void(bool)> task)
 {
@@ -160,64 +106,6 @@ void things::working_file::add_task(std::string name,
     }
 }
 
-void things::working_file::make_sure_this_is_latest_project_version_()
-{
-    auto libmgr = project_->get_current_library_manager();
-
-    if (!ast ||
-        current_project_version_ != project_->get_loaded_version() ||
-        library_fully_loaded_ != project_->libraries_have_been_populated())
-    {
-        current_project_version_ = project_->get_loaded_version();
-        library_fully_loaded_ = project_->libraries_have_been_populated();
-        work_libraries_ = project_->get_libraries_this_file_is_part_of(file_);
-        std::optional<std::string> work;
-        if (work_libraries_.size() != 0)
-            work = work_libraries_[0];
-        ast = std::make_shared<vhdl::ast>(file_, libmgr, work.value_or("work"));
-    }
-}
-
-void things::working_file::send_diagnostics_back_to_client_if_needed_()
-{
-    if (send_diagnostics_ && !stopped_.load())
-    {
-        auto [parse_errors, semantic_errors] = ast->get_diagnostics();
-
-        std::vector<common::diagnostic> diags;
-        diags.reserve(parse_errors.size() /* + semantic_errors.size() */);
-
-        common::location loc(file_);
-        if (!ast->get_main_file())
-        {
-            common::diagnostic diag(Err::File_not_found, loc);
-            diags.push_back(diag);
-        }
-
-        if (current_project_version_ == 0)
-        {
-            common::diagnostic diag(Err::Loading_prj, loc);
-            diags.push_back(diag);
-        }
-
-        // else if is what we want. Only complain about the config file once
-        else if (!library_fully_loaded_)
-        {
-            common::diagnostic diag(Err::Library_not_loaded, loc);
-            diag << semantic_errors.size();
-            diags.push_back(diag);
-        }
-        else if (work_libraries_.size() == 0)
-        {
-            common::diagnostic diag(Err::File_not_in_lib, loc);
-            diags.push_back(diag);
-        }
-
-        diags.insert(diags.end(), parse_errors.begin(), parse_errors.end());
-        // diags.insert(diags.end(), semantic_errors.begin(), semantic_errors.end());
-        send_diagnostics_(file_, diags);
-    }
-}
 
 things::working_files::working_files(things::language* s, things::client* c,
                                      bool j)
@@ -241,25 +129,20 @@ things::working_files::~working_files()
         no_running_threads_.wait(guard);
 }
 
-void things::working_files::run_with_ast(
-    std::string file, std::function<void(std::shared_ptr<vhdl::ast>)> callback)
-{
-    if (working_files_.find(file) == working_files_.end())
-        return;
-
-    auto wf = working_files_.find(file)->second.get();
-    wf->run_with_ast(std::move(callback));
-}
-
 bool things::working_files::update(std::string file)
 {
     auto new_file = false;
     if (working_files_.find(file) == working_files_.end())
     {
-        auto wf = std::make_shared<working_file>(
-            file,
-            std::bind(&things::client::send_diagnostics, client_, std::placeholders::_1, std::placeholders::_2),
-            &server_->project);
+        std::filesystem::path path(file);
+        auto ext = path.extension().string();
+
+        auto is_a_sv_file = (ext == ".sv");
+        auto is_a_vhdl_file = (ext == ".vhd" || ext == ".vhdl");
+        assert(is_a_sv_file || is_a_vhdl_file);
+
+        auto wf = is_a_sv_file? std::make_shared<vhdl_working_file>(file, client_, &server_->project):
+                                std::make_shared<vhdl_working_file>(file, client_, &server_->project);
 
         // if we want to run_everything_on_the_main_thread, simply create a
         // working_file object, and simply call its update() function.
@@ -305,7 +188,7 @@ bool things::working_files::update(std::string file)
         if (name == file)
             wf->update();
         else
-            wf->list_of_potentially_invalidated_reference_files.push_back(file);
+            wf->invalidate_potentially_referenced_file(file);
     }
 
     return new_file;
@@ -326,6 +209,273 @@ void things::working_files::update_all_files()
     for (auto [name, wf] : working_files_)
     {
         wf->update();
+    }
+}
+
+void things::working_files::folding_ranges(
+    std::string file, std::shared_ptr<lsp::incoming_request> request)
+{
+    if (working_files_.find(file) == working_files_.end())
+        return;
+
+    auto wf = working_files_.find(file)->second.get();
+    wf->folding_ranges(request);
+}
+
+void things::working_files::symbols(
+    std::string file, std::shared_ptr<lsp::incoming_request> request)
+{
+    if (working_files_.find(file) == working_files_.end())
+        return;
+
+    auto wf = working_files_.find(file)->second.get();
+    wf->symbols(request);
+}
+
+void things::working_files::hover(
+    std::string file, std::shared_ptr<lsp::incoming_request> request,
+    common::position pos)
+{
+    if (working_files_.find(file) == working_files_.end())
+        return;
+
+    auto wf = working_files_.find(file)->second.get();
+    wf->hover(request, pos);
+}
+
+void things::working_files::definition(
+    std::string file, std::shared_ptr<lsp::incoming_request> request,
+    common::position pos)
+{
+    if (working_files_.find(file) == working_files_.end())
+        return;
+
+    auto wf = working_files_.find(file)->second.get();
+    wf->definition(request, pos);
+}
+
+things::vhdl_working_file::vhdl_working_file(std::string file,
+                                             things::client* client,
+                                             things::project* prj)
+    : working_file(file, client, prj)
+{
+}
+
+void things::vhdl_working_file::update()
+{
+    auto analyse_and_diagnose = [this](bool is_superseded) {
+        if (is_superseded)
+        {
+            return;
+        }
+
+        make_sure_this_is_latest_project_version();
+
+        if (list_of_potentially_referenced_files_now_invalid.size())
+        {
+            std::lock_guard<std::mutex> lock(mutex_to_invalidate_files_);
+            for (auto it : list_of_potentially_referenced_files_now_invalid)
+            {
+                ast->invalidate_reference_file(it);
+            }
+            list_of_potentially_referenced_files_now_invalid.clear();
+        }
+
+        ast->invalidate_main_file();
+        ast->update();
+
+        send_diagnostics_back_to_client_if_needed();
+    };
+
+    return add_task("update", std::move(analyse_and_diagnose));
+}
+
+void things::vhdl_working_file::folding_ranges(
+    std::shared_ptr<lsp::incoming_request> r)
+{
+    auto calculate_folding_ranges = [r](std::shared_ptr<vhdl::ast> ast) {
+        if (!ast || !ast->get_main_file()) {
+            r->reply(json::string("[]"));
+            return;
+        }
+
+        rapidjson::StringBuffer s;
+        rapidjson::Writer<rapidjson::StringBuffer> w(s);
+
+        w.StartArray();
+        vhdl_folding_range_provider d(&w);
+        ast->get_main_file()->traverse(d);
+        w.EndArray();
+    
+        json::string json = s.GetString();
+        r->reply(json);
+    };
+    run_with_vhdl_ast(calculate_folding_ranges);
+}
+
+void things::vhdl_working_file::symbols(
+    std::shared_ptr<lsp::incoming_request> r)
+{
+    auto get_document_symbols = [r](std::shared_ptr<vhdl::ast> ast) {
+        if (!ast || !ast->get_main_file()) {
+            r->reply(json::string("[]"));
+            return;
+        }
+
+        rapidjson::StringBuffer s;
+        rapidjson::Writer<rapidjson::StringBuffer> w(s);
+
+        w.StartArray();
+        vhdl_document_symbol_provider d(&w);
+        ast->get_main_file()->traverse(d);
+        w.EndArray();
+    
+        json::string json = s.GetString();
+        r->reply(json);
+    };
+
+    run_with_vhdl_ast(get_document_symbols);
+}
+
+void things::vhdl_working_file::hover(std::shared_ptr<lsp::incoming_request> r,
+                                      common::position pos)
+{
+    auto get_hover = [r, pos](std::shared_ptr<vhdl::ast> ast) {
+        if (!ast || !ast->get_main_file())
+        {
+            r->reply(json::null_value);
+            return;
+        }
+
+        rapidjson::StringBuffer s;
+        rapidjson::Writer<rapidjson::StringBuffer> w(s);
+
+        bool found = false;
+        vhdl_hover_provider d(&w, found, pos);
+        ast->get_main_file()->traverse(d);
+    
+        if (!found) {
+            r->reply(json::null_value);
+            return;
+        }
+
+        json::string json = s.GetString();
+        r->reply(json);
+    };
+
+    run_with_vhdl_ast(get_hover);
+}
+
+void things::vhdl_working_file::definition(
+    std::shared_ptr<lsp::incoming_request> r, common::position pos)
+{
+    auto get_definition = [r, pos](std::shared_ptr<vhdl::ast> ast) {
+        if (!ast || !ast->get_main_file())
+        {
+            r->reply(json::null_value);
+            return;
+        }
+
+        rapidjson::StringBuffer s;
+        rapidjson::Writer<rapidjson::StringBuffer> w(s);
+
+        bool found = false;
+        vhdl_definition_provider d(&w, found, pos);
+        ast->get_main_file()->traverse(d);
+    
+        if (!found) {
+            r->reply(json::null_value);
+            return;
+        }
+
+        json::string json = s.GetString();
+        r->reply(json);
+    };
+
+    run_with_vhdl_ast(get_definition);
+}
+
+void things::vhdl_working_file::run_with_vhdl_ast(
+    std::function<void(std::shared_ptr<vhdl::ast>)> callback)
+{
+    auto run_that = [this, that = std::move(callback)](bool is_superseded) {
+        if (is_superseded)
+        {
+            that(nullptr);
+            return;
+        }
+
+        make_sure_this_is_latest_project_version();
+
+        auto was_already_uptodate = ast->update();
+
+        if (!was_already_uptodate)
+            send_diagnostics_back_to_client_if_needed();
+
+        that(ast);
+    };
+
+    return add_task("run_with_ast", std::move(run_that));
+}
+
+void things::vhdl_working_file::make_sure_this_is_latest_project_version()
+{
+    auto libmgr = project_->get_current_library_manager();
+
+    auto new_project_version = project_->get_loaded_version();
+    auto new_library_loaded_state = project_->libraries_have_been_populated();
+    if (!ast ||
+        current_project_version_ != new_project_version ||
+        library_fully_loaded_ != new_library_loaded_state)
+    {
+        current_project_version_ = new_project_version;
+        library_fully_loaded_ = new_library_loaded_state;
+        work_libraries_ = project_->get_libraries_this_file_is_part_of(file_);
+        std::optional<std::string> work;
+        if (work_libraries_.size() != 0)
+            work = work_libraries_[0];
+        ast = std::make_shared<vhdl::ast>(file_, libmgr, work.value_or("work"));
+    }
+}
+
+void things::vhdl_working_file::send_diagnostics_back_to_client_if_needed()
+{
+    if (!stopped_.load())
+    {
+        auto [parse_errors, semantic_errors] = ast->get_diagnostics();
+
+        std::vector<common::diagnostic> diags;
+        diags.reserve(parse_errors.size() /* + semantic_errors.size() */);
+
+        common::location loc(file_);
+        if (!ast->get_main_file())
+        {
+            common::diagnostic diag("{} not found.", loc);
+            diags.push_back(diag);
+        }
+
+        if (current_project_version_ == 0)
+        {
+            common::diagnostic diag("To enjoy full vhdl language services, make sure there is a valid vhdl_config.yaml configuration.", loc);
+            diags.push_back(diag);
+        }
+
+        // else if is what we want. Only complain about the config file once
+        else if (!library_fully_loaded_)
+        {
+            common::diagnostic diag("Indexer is still running. Ignoring {} errors.", loc);
+            diag << semantic_errors.size();
+            diags.push_back(diag);
+        }
+        else if (work_libraries_.size() == 0)
+        {
+            common::diagnostic diag("To enjoy full vhdl language services, please add this file to vhdl_config.yaml.", loc);
+            diags.push_back(diag);
+        }
+
+        diags.insert(diags.end(), parse_errors.begin(), parse_errors.end());
+        // diags.insert(diags.end(), semantic_errors.begin(), semantic_errors.end());
+        client_->send_diagnostics(file_, diags);
     }
 }
 
