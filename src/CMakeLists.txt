@@ -128,17 +128,21 @@ file(GLOB_RECURSE THINGS_HEADERS things/*.h)
 
 files_to_dirs(THINGS_HEADERS INCLUDE_DIRS)
 
+file(GLOB_RECURSE SV_SOURCES sv/*.cpp)
+file(GLOB_RECURSE SV_HEADERS sv/*.h)
+
+
 # ------------------------------------------------
 # We can finally build and link everything
 # ------------------------------------------------
-add_executable(vhdlstuff vhdlstuff.cpp ${THINGS_SOURCES} ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
+add_executable(vhdlstuff vhdlstuff.cpp ${THINGS_SOURCES} ${CMAKE_CURRENT_BINARY_DIR}/version.cpp ${SV_SOURCES})
 
 # the order in which we include libraries matter. libvhdl and liblsp use
 # definitions from libcommon, so it should be completely at the back
 target_link_libraries(vhdlstuff yamlcpp libvhdl liblsp libcommon libfmt slang::slang)
 target_include_directories(vhdlstuff PRIVATE ${args_source_dir}/ ${yamlcpp_source_dir}/include ${yamlcpp_source_dir}-build/include ${rapidjson_source_dir}/include)
 
-add_executable(debugstuff debug.cpp ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
+add_executable(debugstuff debug.cpp ${CMAKE_CURRENT_BINARY_DIR}/version.cpp ${SV_SOURCES})
 
 target_link_libraries(debugstuff yamlcpp libvhdl liblsp libcommon libfmt slang::slang)
 target_include_directories(debugstuff PRIVATE ${args_source_dir}/ ${yamlcpp_source_dir}/include ${yamlcpp_source_dir}-build/include ${rapidjson_source_dir}/include)
