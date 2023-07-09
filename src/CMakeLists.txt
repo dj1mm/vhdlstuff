@@ -89,6 +89,18 @@ add_definitions(-DRAPIDJSON_HAS_STDSTRING)
 
 set(INCLUDES ${CMAKE_CURRENT_SOURCE_DIR} CACHE PATH "include folder")
 
+# ------------
+
+include(FetchContent)
+FetchContent_Declare(
+  slang
+  GIT_REPOSITORY https://github.com/MikePopoloski/slang
+  GIT_TAG v3.0
+  GIT_SHALLOW ON)
+FetchContent_MakeAvailable(slang)
+
+# ------------
+
 
 add_subdirectory(bigint)
 add_subdirectory(common)
@@ -123,12 +135,12 @@ add_executable(vhdlstuff vhdlstuff.cpp ${THINGS_SOURCES} ${CMAKE_CURRENT_BINARY_
 
 # the order in which we include libraries matter. libvhdl and liblsp use
 # definitions from libcommon, so it should be completely at the back
-target_link_libraries(vhdlstuff yamlcpp libvhdl liblsp libcommon libfmt)
+target_link_libraries(vhdlstuff yamlcpp libvhdl liblsp libcommon libfmt slang::slang)
 target_include_directories(vhdlstuff PRIVATE ${args_source_dir}/ ${yamlcpp_source_dir}/include ${yamlcpp_source_dir}-build/include ${rapidjson_source_dir}/include)
 
 add_executable(debugstuff debug.cpp ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
 
-target_link_libraries(debugstuff yamlcpp libvhdl liblsp libcommon libfmt)
+target_link_libraries(debugstuff yamlcpp libvhdl liblsp libcommon libfmt slang::slang)
 target_include_directories(debugstuff PRIVATE ${args_source_dir}/ ${yamlcpp_source_dir}/include ${yamlcpp_source_dir}-build/include ${rapidjson_source_dir}/include)
 
 if(WIN32)
