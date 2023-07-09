@@ -8,6 +8,18 @@
 
 #include "version.h"
 
+#include "sv/ast.h"
+#include "sv/library_manager.h"
+
+#include "slang/parsing/Preprocessor.h"
+#include "slang/parsing/Parser.h"
+#include "slang/ast/Compilation.h"
+#include "slang/util/BumpAllocator.h"
+#include "slang/text/SourceManager.h"
+#include "slang/syntax/SyntaxPrinter.h"
+#include "slang/diagnostics/DiagnosticEngine.h"
+#include "slang/diagnostics/TextDiagnosticClient.h"
+
 // this define is needed before the include format.h. Otherwise will get an
 // `undefined reference to `fmt::v8::vformat` compile error
 #define FMT_HEADER_ONLY
@@ -26,10 +38,36 @@
 #include "args.hxx"
 #include "loguru.h"
 
-int debug_tokens(std::string file, bool stats = false)
+int debug_tokens(std::string file, std::filesystem::path path, bool stats = false)
 {
     auto zero = std::chrono::high_resolution_clock::now();
 
+    if (path.extension() == ".sv")
+    {
+        slang::SourceManager sm;
+        // auto sm = std::make_shared<slang::SourceManager>();
+        slang::BumpAllocator alloc;
+        slang::Diagnostics diagnostics;
+        slang::parsing::Preprocessor pp(sm, alloc, diagnostics);
+
+        auto buffer = sm.readSource(file);
+        if (!buffer)
+            throw std::invalid_argument(fmt::format("Unable to open {}", file));
+
+        pp.pushSource(buffer);
+
+        slang::syntax::SyntaxPrinter output;
+        while (true) {
+            auto token = pp.next();
+            output.print(token);
+            if (token.kind == slang::parsing::TokenKind::EndOfFile) break;
+        }
+
+        std::cout << output.str() << std::endl;
+        return 0;
+    }
+
+    // else this is a vhdl file
     std::ifstream content(file);
     if (!content.good())
         throw std::invalid_argument(fmt::format("Unable to open {}", file));
@@ -72,6 +110,36 @@ int debug_analysis(std::string file, std::filesystem::path path, std::string wor
 {
     auto cwd = std::filesystem::current_path();
 
+    if (path.extension() == ".sv")
+    {
+        auto manager = std::make_shared<sv::library_manager>(cwd.string());
+        sv::ast tree(path.string(), manager, work);
+        tree.update();
+        manager.reset();
+        
+        auto [parse_errors, semantic_errors ] = tree.get_diagnostics();
+        auto number_of_parse_errors = parse_errors.size();
+        auto number_of_semantic_errors = semantic_errors.size();
+
+        
+        slang::DiagnosticEngine diagnostic_engine(tree.sm);
+        auto diagnostic_client = std::make_shared<slang::TextDiagnosticClient>();
+        diagnostic_engine.addClient(diagnostic_client);
+        for (auto& it : parse_errors)
+        {
+            diagnostic_engine.issue(it);
+        }
+
+        for (auto& it : semantic_errors)
+        {
+            diagnostic_engine.issue(it);
+        }
+        std::string errors = diagnostic_client->getString();
+        std::cout << errors << std::endl;
+        return 0;
+    }
+
+    // else this is a vhdl file
     auto manager = std::make_shared<vhdl::library_manager>(cwd.string());
 
     vhdl::ast tree(path.string(), manager, work);
@@ -156,7 +224,7 @@ int main(int argc, char** argv)
 
         if (k)
         {
-            return debug_tokens(f.Get(), s);
+            return debug_tokens(f.Get(), path, s);
         }
 
         return debug_analysis(f.Get(), path, w.Get(), p, s);
