@@ -6,11 +6,17 @@
 
 #include "fmt/format.h"
 
-constexpr std::string_view Yaml_Parse_errors           = "Could not parse yaml because of syntax errors.";
-constexpr std::string_view Yaml_File_Not_found         = "{} not found.";
-constexpr std::string_view Yaml_File_No_Libraries      = "Expected a section called libraries.";
-constexpr std::string_view Yaml_File_Invalid_Libraries = "Expected an array of libraries.";
-constexpr std::string_view Error_Unnamed_Library       = "Skipping this library because a name was not provided.";
+#include "slang/diagnostics/Diagnostics.h"
+#include "slang/parsing/Preprocessor.h"
+#include "slang/util/BumpAllocator.h"
+#include "sv/fast_parser.h"
+
+constexpr std::string_view Yaml_Parse_errors                = "Could not parse yaml because of syntax errors.";
+constexpr std::string_view Yaml_File_Not_found              = "{} not found.";
+constexpr std::string_view Yaml_File_No_Vhdl_Libraries      = "Expected a section called libraries.";
+constexpr std::string_view Yaml_File_Invalid_Vhdl_Libraries = "Expected an array of libraries.";
+constexpr std::string_view Yaml_File_No_Sv_Libraries        = "Expected a section called sv.";
+constexpr std::string_view Error_Unnamed_Library            = "Skipping this library because a name was not provided.";
 
 void things::filelist::add_entry(std::string name, std::string library)
 {
@@ -50,9 +56,12 @@ things::project::project(things::language* s, things::client* c)
 
     current_library_manager_ =
         std::make_shared<vhdl::library_manager>(std::nullopt, true);
+    current_sv_library_manager_ =
+        std::make_shared<sv::library_manager>(std::nullopt, true);
 
     current_background_explorer_ = std::make_unique<things::explorer>(
         current_filelist_, current_library_manager_,
+        current_sv_library_manager_,
         std::bind(&things::project::add_message_and_send_to_client, this,
                   std::placeholders::_1),
         server_, client_, project_folder_.string());
@@ -67,6 +76,7 @@ void things::project::initialise(std::optional<std::string> root)
 bool things::project::is_loaded()
 {
     return path_to_loaded_yaml_ && current_library_manager_ &&
+           current_sv_library_manager_ &&
            current_filelist_;
 }
 
@@ -109,6 +119,13 @@ std::shared_ptr<vhdl::library_manager> things::project::
     return current_library_manager_;
 }
 
+std::shared_ptr<sv::library_manager> things::project::
+    get_current_sv_library_manager()
+{
+    std::lock_guard lock(clm_mtx_);
+    return current_sv_library_manager_;
+}
+
 bool things::project::
     load_yaml_reset_project_kick_background_index_destroy_libraries()
 {
@@ -122,6 +139,7 @@ bool things::project::
     std::vector<common::diagnostic> diags;
     std::vector<std::string> names_of_all_libraries;
     std::vector<things::yaml_entry> all_yaml_entries;
+    std::vector<std::string> all_sv_incdirs;
 
     auto path_to_yaml = project_folder_ / "vhdl_config.yaml";
     path_to_last_yaml_ = path_to_yaml.string();
@@ -129,9 +147,10 @@ bool things::project::
 
     auto temp_mgr =
         std::make_shared<vhdl::library_manager>(std::nullopt, false);
+    auto temp_svm = std::make_shared<sv::library_manager>(std::nullopt, false);
     auto temp_lst = std::make_shared<things::filelist>();
     auto temp_xpl = std::make_unique<things::explorer>(
-        temp_lst, temp_mgr,
+        temp_lst, temp_mgr, temp_svm,
         std::bind(&things::project::add_message_and_send_to_client, this,
                   std::placeholders::_1),
         server_, client_, project_folder_.string());
@@ -164,7 +183,7 @@ bool things::project::
         {
             const auto& m = config.Mark();
             common::location loc(path_to_last_yaml_v, 1, 1);
-            common::diagnostic diag(Yaml_File_No_Libraries, loc);
+            common::diagnostic diag(Yaml_File_No_Vhdl_Libraries, loc);
             diags.push_back(diag);
             set_messages_and_send_to_client(diags);
             return false;
@@ -174,7 +193,7 @@ bool things::project::
         {
             const auto& m = config["libraries"].Mark();
             common::location loc(path_to_last_yaml_v, 1, 1, 1, 1);
-            common::diagnostic diag(Yaml_File_Invalid_Libraries, loc);
+            common::diagnostic diag(Yaml_File_Invalid_Vhdl_Libraries, loc);
             diags.push_back(diag);
             set_messages_and_send_to_client(diags);
             return false;
@@ -207,6 +226,7 @@ bool things::project::
                 if (file.IsScalar())
                 {
                     yaml_entry entry;
+                    entry.kind = yaml_entry::vhdl;
                     entry.line_number = file.Mark().line;
                     entry.search = file.as<std::string>();
                     entry.library = library;
@@ -221,6 +241,7 @@ bool things::project::
                     continue;
 
                 yaml_entry entry;
+                entry.kind = yaml_entry::vhdl;
                 entry.line_number = file.Mark().line;
                 entry.search = file["search"].as<std::string>();
                 entry.library = library;
@@ -232,6 +253,60 @@ bool things::project::
                 all_yaml_entries.push_back(entry);
             }
 
+        }
+        if (config["sv"])
+        {
+            if (config["sv"]["incdir"])
+            {
+                auto incdirs = config["sv"]["incdir"];
+                for (auto it1 = incdirs.begin(); it1 != incdirs.end(); ++it1)
+                {
+                    if (it1->IsScalar()){
+                        auto incdir = it1->as<std::string>();
+                        if (incdir.rfind("${workspaceFolder}", 0) == 0)
+                            incdir.replace(0, 18, project_folder_.string());
+                        all_sv_incdirs.push_back(incdir);
+                    }
+                }
+            }
+            if (config["sv"]["files"])
+            {
+                auto files = config["sv"]["files"];
+                for (auto it1 = files.begin(); it1 != files.end(); ++it1)
+                {
+                    if (it1->IsScalar()){
+                        yaml_entry entry;
+                        entry.kind = yaml_entry::sv;
+                        entry.line_number = it1->Mark().line;
+                        entry.search = it1->as<std::string>();
+                        entry.library = "work";
+                        entry.incdirs = &all_sv_incdirs;
+                        all_yaml_entries.push_back(entry);
+                        continue;
+                    }
+
+                    auto file = it1->as<YAML::Node>();
+                    if (!file["directory"] && !file["directory"].IsScalar())
+                        continue;
+
+                    if (!file["search"] && !file["search"].IsScalar())
+                        continue;
+
+                    yaml_entry entry;
+                    entry.kind = yaml_entry::vhdl;
+                    entry.line_number = file.Mark().line;
+                    entry.search = file["search"].as<std::string>();
+                    entry.library = "work";
+                    entry.incdirs = &all_sv_incdirs;
+                    entry.directory = file["directory"].as<std::string>();
+
+                    if (file["depth"] && file["depth"].IsScalar())
+                        entry.depth = file["depth"].as<int>();
+
+                    all_yaml_entries.push_back(entry);
+                }
+
+            }
         }
     }
     catch (const std::exception& e)
@@ -278,6 +353,10 @@ bool things::project::
     current_library_manager_ = temp_mgr;
     current_library_manager_->initialise(names_of_all_libraries);
 
+    current_sv_library_manager_->destroy();
+    current_sv_library_manager_.reset();
+    current_sv_library_manager_ = temp_svm;
+
     set_messages_and_send_to_client(diags);
     return true;
 }
@@ -297,11 +376,12 @@ std::vector<std::string> things::project::get_libraries_this_file_is_part_of(
 things::explorer::worker::worker(int id, std::vector<things::yaml_entry> e,
                                  std::shared_ptr<things::filelist> f,
                                  std::shared_ptr<vhdl::library_manager> m,
+                                 std::shared_ptr<sv::library_manager> svm,
                                  progress* p, std::function<void()> u,
                                  std::function<void(common::diagnostic)> c,
                                  std::string w)
     : id(id), busy_(false), quit_(false), done_(false), entries(e), manager(m),
-      filelist(f), progress_(p),
+      sv_manager(svm), filelist(f), progress_(p),
       send_progress_update(u), add_message_and_send_to_client(c),
       workspace_folder(w)
 {
@@ -378,29 +458,43 @@ int things::explorer::worker::explore_entry(things::yaml_entry& entry)
             }
 
 
-            std::ifstream content(file);
-            if (!content.good())
-            {
-                LOG_S(INFO) << "Unable to read file " << file.string();
-                continue;
+            if (entry.kind == yaml_entry::vhdl) {
+                std::ifstream content(file);
+                if (!content.good())
+                {
+                    LOG_S(INFO) << "Unable to read file " << file.string();
+                    continue;
+                }
+                content.seekg(0, std::ios::end);
+                auto size = content.tellg();
+                std::string buffer(size, ' ');
+                content.seekg(0);
+                content.read(&buffer[0], size);
+
+                vhdl::fast_parser fast(&str, &buffer[0], &buffer[buffer.length()], file.string());
+                auto entries = fast.parse();
+
+                auto lib = manager->get(entry.library);
+                for (auto& e : entries)
+                {
+                    lib->put(e);
+                }
+                ++found;
+
+                filelist->add_entry(file.string(), entry.library);
+            } else if (entry.kind == yaml_entry::sv) {
+                sv::fast_parser fast(&sm, file);
+                auto entries = fast.parse();
+
+                auto lib = sv_manager->get(entry.library);
+                for (auto& [kind, line, column, identifier, identifier2, filename, timestamp] : entries)
+                {
+                    lib->put(kind, line, column, identifier, identifier2, filename, timestamp);
+                }
+                ++found;
+
+                filelist->add_entry(file.string(), entry.library);
             }
-            content.seekg(0, std::ios::end);
-            auto size = content.tellg();
-            std::string buffer(size, ' ');
-            content.seekg(0);
-            content.read(&buffer[0], size);
-
-            vhdl::fast_parser fast(&str, &buffer[0], &buffer[buffer.length()], file.string());
-            auto entries = fast.parse();
-
-            auto lib = manager->get(entry.library);
-            for (auto& e : entries)
-            {
-                lib->put(e);
-            }
-            ++found;
-
-            filelist->add_entry(file.string(), entry.library);
 
             auto is_stopped = quit_.load(std::memory_order_release);
             if (is_stopped)
@@ -446,29 +540,44 @@ int things::explorer::worker::explore_entry(things::yaml_entry& entry)
         }
 
         auto current = progress_->indexed.load();
-        std::ifstream content(file.string());
-        if (!content.good())
-        {
-            LOG_S(INFO) << "Unable to read file " << file.string();
+
+        if (entry.kind == yaml_entry::vhdl) {
+            std::ifstream content(file.string());
+            if (!content.good())
+            {
+                LOG_S(INFO) << "Unable to read file " << file.string();
             return found;
+            }
+            content.seekg(0, std::ios::end);
+            auto size = content.tellg();
+            std::string buffer(size, ' ');
+            content.seekg(0);
+            content.read(&buffer[0], size);
+
+            vhdl::fast_parser fast(&str, &buffer[0], &buffer[buffer.length()], file.string());
+            auto entries = fast.parse();
+
+            auto lib = manager->get(entry.library);
+            for (auto& e : entries)
+            {
+                lib->put(e);
+            }
+            ++found;
+
+            filelist->add_entry(file.string(), entry.library);
+        } else if (entry.kind == yaml_entry::sv) {
+            sv::fast_parser fast(&sm, file);
+            auto entries = fast.parse();
+
+            auto lib = sv_manager->get(entry.library);
+            for (auto& [kind, line, column, identifier, identifier2, filename, timestamp] : entries)
+            {
+                lib->put(kind, line, column, identifier, identifier2, filename, timestamp);
+            }
+            ++found;
+
+            filelist->add_entry(file.string(), entry.library);
         }
-        content.seekg(0, std::ios::end);
-        auto size = content.tellg();
-        std::string buffer(size, ' ');
-        content.seekg(0);
-        content.read(&buffer[0], size);
-
-        vhdl::fast_parser fast(&str, &buffer[0], &buffer[buffer.length()], file.string());
-        auto entries = fast.parse();
-
-        auto lib = manager->get(entry.library);
-        for (auto& e : entries)
-        {
-            lib->put(e);
-        }
-        ++found;
-
-        filelist->add_entry(file.string(), entry.library);
     }
     return found;
 }
@@ -535,11 +644,13 @@ bool things::explorer::worker::completed()
 
 things::explorer::explorer(std::shared_ptr<things::filelist> f,
                            std::shared_ptr<vhdl::library_manager> m,
+                           std::shared_ptr<sv::library_manager> svm,
                            std::function<void(common::diagnostic)> cb,
                            things::language* s, things::client* c,
                            std::string w)
-    : filelist(f), manager(m), add_message_and_send_to_client(cb), server_(s),
-      client_(c), workspace_folder(w)
+    : filelist(f), manager(m), sv_manager(svm),
+      add_message_and_send_to_client(cb), server_(s), client_(c),
+      workspace_folder(w)
 {
     LOG_S(INFO) << "Project explorer constructed";
 }
@@ -581,7 +692,7 @@ void things::explorer::start(std::vector<things::yaml_entry>& q)
         end += (remainder > 0) ? (length + !!(remainder--)) : length;
         std::vector<things::yaml_entry> e(q.begin() + begin, q.begin() + end);
         auto w = std::make_unique<worker>(
-            i, e, filelist, manager, &progress_,
+            i, e, filelist, manager, sv_manager, &progress_,
             std::bind(&things::explorer::send_progress_update, this),
             add_message_and_send_to_client, workspace_folder);
 

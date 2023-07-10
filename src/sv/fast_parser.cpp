@@ -38,12 +38,20 @@ sv::fast_parser::parse()
 
     auto tree = slang::syntax::SyntaxTree::fromBuffer(buffer, *sm, options);
     for (auto& [node, _]: tree->getMetadata().nodeMap) {
-        auto decl = &node->as<slang::syntax::ModuleDeclarationSyntax>();
-        std::string_view name = decl->header->name.valueText();
-        if (name.empty())
-            continue;
-
-        // do something
+        auto decl        = &node->as<slang::syntax::ModuleDeclarationSyntax>();
+        auto name        = std::string(decl->header->name.valueText());
+        auto loc         = decl->header->moduleKeyword.location();
+        auto line_number = (unsigned) sm->getLineNumber(loc);
+        auto coln_number = (unsigned) sm->getColumnNumber(loc);
+        auto file        = std::string(sm->getFileName(loc));
+        switch (decl->kind) {
+        case slang::syntax::SyntaxKind::ModuleDeclaration:    result.push_back(std::make_tuple(sv::library_cell_kind::module,    line_number, coln_number, name, std::nullopt, file, 0)); break;
+        case slang::syntax::SyntaxKind::InterfaceDeclaration: result.push_back(std::make_tuple(sv::library_cell_kind::interface, line_number, coln_number, name, std::nullopt, file, 0)); break;
+        case slang::syntax::SyntaxKind::PackageDeclaration:   result.push_back(std::make_tuple(sv::library_cell_kind::package,   line_number, coln_number, name, std::nullopt, file, 0)); break;
+        case slang::syntax::SyntaxKind::ProgramDeclaration:   result.push_back(std::make_tuple(sv::library_cell_kind::program,   line_number, coln_number, name, std::nullopt, file, 0)); break;
+        default:
+            break;
+        }
 
     }
     for (auto class_decl: tree->getMetadata().classDecls) {

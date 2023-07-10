@@ -18,6 +18,8 @@
 
 #include "common/diagnostics.h"
 #include "common/loguru.h"
+#include "slang/text/SourceManager.h"
+#include "sv/library_manager.h"
 #include "vhdl/fast_parser.h"
 #include "vhdl/library_manager.h"
 #include "yaml-cpp/yaml.h"
@@ -71,6 +73,7 @@ class project
 
     // get the current library manager
     std::shared_ptr<vhdl::library_manager> get_current_library_manager();
+    std::shared_ptr<sv::library_manager> get_current_sv_library_manager();
 
     // search for a yaml file in the project folder and read it.
     // If no error, reset project, kick background indexing and clear libraries
@@ -97,6 +100,7 @@ class project
 
     std::mutex clm_mtx_;
     std::shared_ptr<vhdl::library_manager> current_library_manager_;
+    std::shared_ptr<sv::library_manager> current_sv_library_manager_;
 
     things::language* server_;
     things::client* client_;
@@ -134,8 +138,10 @@ class filelist
 // with the filelist::entry which is an internal data structure
 struct yaml_entry
 {
+    enum { vhdl, sv } kind;
     std::string search;
     std::string library;
+    std::vector<std::string>* incdirs;
 
     std::optional<std::string> directory;
     std::optional<int> depth;
@@ -162,6 +168,7 @@ class explorer
         worker(int, std::vector<things::yaml_entry>,
                std::shared_ptr<things::filelist>,
                std::shared_ptr<vhdl::library_manager>,
+               std::shared_ptr<sv::library_manager>,
                progress*, std::function<void()>,
                std::function<void(common::diagnostic)>, std::string);
 
@@ -194,8 +201,11 @@ class explorer
         std::vector<things::yaml_entry> entries;
         common::stringtable str;
 
+        slang::SourceManager sm;
+
         std::shared_ptr<things::filelist> filelist;
         std::shared_ptr<vhdl::library_manager> manager;
+        std::shared_ptr<sv::library_manager> sv_manager;
 
         progress* progress_;
         std::function<void()> send_progress_update;
@@ -208,6 +218,7 @@ class explorer
 
     explorer(std::shared_ptr<things::filelist>,
              std::shared_ptr<vhdl::library_manager>,
+             std::shared_ptr<sv::library_manager>,
              std::function<void(common::diagnostic)>, things::language*,
              things::client*, std::string);
     explorer(const explorer&) = delete;
@@ -237,6 +248,7 @@ class explorer
 
     std::shared_ptr<things::filelist> filelist;
     std::shared_ptr<vhdl::library_manager> manager;
+    std::shared_ptr<sv::library_manager> sv_manager;
     std::function<void(common::diagnostic)> add_message_and_send_to_client;
     progress progress_;
     things::language* server_;
