@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 #include "vhdl/ast.h"
+#include "sv/ast.h"
 
 #include "project.h"
 
@@ -152,6 +153,26 @@ class vhdl_working_file : public working_file
     std::vector<std::string> work_libraries_;
 
     void run_with_vhdl_ast(std::function<void(std::shared_ptr<vhdl::ast>)>);
+    void make_sure_this_is_latest_project_version();
+    void send_diagnostics_back_to_client_if_needed();
+};
+
+class sv_working_file : public working_file
+{
+    public:
+    sv_working_file(std::string, things::client*, things::project*);
+
+    void update();
+    void folding_ranges(std::shared_ptr<lsp::incoming_request>);
+    void symbols       (std::shared_ptr<lsp::incoming_request>);
+    void hover         (std::shared_ptr<lsp::incoming_request>, common::position);
+    void definition    (std::shared_ptr<lsp::incoming_request>, common::position);
+
+    private:
+    std::shared_ptr<sv::ast> ast;
+    std::vector<std::string> work_libraries_;
+
+    void run_with_sv_ast(std::function<void(std::shared_ptr<sv::ast>)>);
     void make_sure_this_is_latest_project_version();
     void send_diagnostics_back_to_client_if_needed();
 };

@@ -136,7 +136,9 @@ void things::language::on_text_document_did_close(
         serialize::from_json<lsp::text_document_did_open_save_close_params>(
             notification->params.value());
     working_files.remove(param.text_document.uri.get_path());
-    client.send_diagnostics(param.text_document.uri.get_path(), {});
+
+    std::vector<lsp::diagnostic> empty;
+    client.send_diagnostics(param.text_document.uri.get_path(), empty);
 }
 
 void things::language::on_text_document_did_change(

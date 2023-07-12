@@ -155,6 +155,20 @@ void things::client::send_diagnostics(
     notify("textDocument/publishDiagnostics", json);
 }
 
+void things::client::send_diagnostics(
+    std::string file, std::vector<lsp::diagnostic> diagnostics)
+{
+    lsp::publish_diagnostics_params params;
+    params.uri.set_path(file);
+    for (auto& it : diagnostics)
+    {
+        params.diagnostics.push_back(it);
+    }
+
+    auto json = serialize::to_json(params);
+    notify("textDocument/publishDiagnostics", json);
+}
+
 std::optional<things::workdone_progress_bar> things::client::create_workdone_progress(std::string t)
 {
     if (workdone_progress_bar_visible.load())

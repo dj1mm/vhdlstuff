@@ -3,6 +3,7 @@
 #define THINGS_CLIENT_H
 
 #include "common/diagnostics.h"
+#include "lsp/structures.h"
 
 #include "lsp/client.h"
 
@@ -38,6 +39,7 @@ class client: public lsp::client
     void show_message(std::string);
     void log_message(std::string);
     void send_diagnostics(std::string, std::vector<common::diagnostic>);
+    void send_diagnostics(std::string, std::vector<lsp::diagnostic>);
 
     std::optional<workdone_progress_bar> create_workdone_progress(std::string);
 
