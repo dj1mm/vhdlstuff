@@ -80,7 +80,7 @@ void things::language::on_initialize(
     request->reply(json);
     }
 
-    project.initialise(capabilities.root);
+    project.set_project_folder(capabilities.root.value());
 
 }
 
@@ -88,7 +88,7 @@ void things::language::on_initialized(
     std::shared_ptr<lsp::incoming_notification> notification)
 {
     LOG_S(INFO) << "Language Server initialized";
-    project.load_yaml_reset_project_kick_background_index_destroy_libraries();
+    project.reload_yaml_reset_project_kick_background_index_destroy_libraries();
 }
 
 void things::language::on_shutdown(
@@ -193,5 +193,5 @@ void things::language::on_workspace_did_change_watched_files(
     std::shared_ptr<lsp::incoming_notification> notification)
 {
     LOG_S(INFO) << "Language Server workspace/didChangeWatchedFiles";
-    project.load_yaml_reset_project_kick_background_index_destroy_libraries();
+    project.reload_yaml_reset_project_kick_background_index_destroy_libraries();
 }

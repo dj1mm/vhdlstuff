@@ -37,13 +37,6 @@ class language; // ikr this is truly horrible
 // workspace. This vhdl_config.yaml should contain the list of libraries and
 // the filelist.
 //
-// It is not an error if vhdl_config.yaml cannot be found. Vhdlstuff will just
-// do as if there was no libraries defined. Ditto if vhdlstuff finds a typo in
-// the yaml. With that said, when vhdlstuff is instructed to parse a file, it
-// will very well ignore that request if it cannot find the specified library.
-// If vhdlstuff finds the library but cannot find the design unit it wants, it
-// will flag this as an error in the diagnostic.
-//
 class project
 {
     public:
@@ -56,7 +49,7 @@ class project
     ~project() = default;
 
     //
-    void initialise(std::optional<std::string>);
+    void set_project_folder(std::string);
 
     // returns true if this project instance is currently loaded with valid
     // content from a yaml file
@@ -79,7 +72,7 @@ class project
     // If no error, reset project, kick background indexing and clear libraries
     // If error, complain about it, but dont reset project and definitely dont
     //           clear libraries.
-    bool load_yaml_reset_project_kick_background_index_destroy_libraries();
+    bool reload_yaml_reset_project_kick_background_index_destroy_libraries();
 
     // get the list of libraries a file is currently part of
     std::vector<std::string> get_libraries_this_file_is_part_of(std::string&);

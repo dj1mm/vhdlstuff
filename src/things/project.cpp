@@ -67,10 +67,10 @@ things::project::project(things::language* s, things::client* c)
         server_, client_, project_folder_.string());
 }
 
-void things::project::initialise(std::optional<std::string> root)
+void things::project::set_project_folder(std::string folder)
 {
-    if (root)
-        project_folder_ = *root;
+    // this is the folder from which we will look for a vhdl_config.yaml file
+    project_folder_ = folder;
 }
 
 bool things::project::is_loaded()
@@ -82,11 +82,17 @@ bool things::project::is_loaded()
 
 int things::project::get_loaded_version()
 {
+    if (!is_loaded())
+        return -1;
+
     return loaded_version_.load();
 }
 
 bool things::project::libraries_have_been_populated()
 {
+    if (!is_loaded())
+        return false;
+
     if (current_background_explorer_)
         return current_background_explorer_->done();
 
@@ -127,7 +133,7 @@ std::shared_ptr<sv::library_manager> things::project::
 }
 
 bool things::project::
-    load_yaml_reset_project_kick_background_index_destroy_libraries()
+    reload_yaml_reset_project_kick_background_index_destroy_libraries()
 {
     // this function does a lot of things.
     // Because of that, it takes very long to complete. We can probably break
