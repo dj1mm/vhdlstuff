@@ -12,28 +12,28 @@
 #include "slang/util/BumpAllocator.h"
 #include "sv/fast_parser.h"
 
-bool things::config::file_specification::is_path() const
+bool things::config::file_spec::is_path() const
 {
     return content.index() == 0;
 }
 
-bool things::config::file_specification::is_file_query() const
+bool things::config::file_spec::is_file_query() const
 {
     return content.index() == 1;
 }
 
-const std::string& things::config::file_specification::as_path() const
+const std::string& things::config::file_spec::as_path() const
 {
     return std::get<0>(content);
 }
 
-const things::config::file_query&
-things::config::file_specification::as_file_query() const
+const things::config::file_filter&
+things::config::file_spec::as_file_query() const
 {
     return std::get<1>(content);
 }
 
-std::string things::config::file_specification::to_string()
+std::string things::config::file_spec::to_string()
 {
     if (is_path())
         return fmt::format("{{path: \"{}\"}}", as_path());
@@ -50,7 +50,7 @@ std::string things::config::file_specification::to_string()
         return "UNKNOWN FILE SPECIFICATION";
 }
 
-void things::filelist::add_entry(std::string name, things::config::file_specification* spec)
+void things::filelist::add_entry(std::string name, things::config::file_spec* spec)
 {
     std::lock_guard guard(mtx_);
     if (path_to_entries.find(name) == path_to_entries.end())
@@ -232,22 +232,22 @@ bool things::project::
     // ------------------------------------------------------------------------
     // 1.5) Extract whatever useful information we need
     // ------------------------------------------------------------------------
-    things::config::file_specifications_ptr filelist_specifications;
-    for (auto& vhdl: vhdl_config->vhdl) {
-        for (auto& file: vhdl.files) {
+    things::config::file_specs_ptr filelist_specifications;
+    for (auto& library: vhdl_config->vhdl) {
+        for (auto& file: library.files) {
             filelist_specifications.push_back(&file);
-            file.library = &vhdl;
+            file.library = &library;
         }
     }
-    auto& sv = vhdl_config->sv;
-        for (auto& file: sv.files) {
+    auto& library = vhdl_config->sv;
+        for (auto& file: library.files) {
             filelist_specifications.push_back(&file);
-            file.library = &sv;
+            file.library = &library;
         }
 
     std::vector<std::string> names_of_all_vhdl_libraries;
-    for (auto vhdl: vhdl_config->vhdl)
-        names_of_all_vhdl_libraries.push_back(vhdl.library);
+    for (auto library: vhdl_config->vhdl)
+        names_of_all_vhdl_libraries.push_back(library.name);
     
     // ------------------------------------------------------------------------
     // 2) Reset project variables
@@ -302,7 +302,7 @@ std::vector<std::string> things::project::get_libraries_this_file_is_part_of(
     std::vector<std::string> libs;
     for (auto head = entry;; entry = entry->next)
     {
-        libs.push_back(entry->spec->library->library);
+        libs.push_back(entry->spec->library->name);
 
         if (entry->next == head)
             break;
@@ -311,7 +311,7 @@ std::vector<std::string> things::project::get_libraries_this_file_is_part_of(
 }
 
 things::explorer::worker::worker(int v, int i,
-                                 things::config::file_specifications_ptr s,
+                                 things::config::file_specs_ptr s,
                                  std::shared_ptr<things::filelist> f,
                                  std::shared_ptr<vhdl::library_manager> m,
                                  std::shared_ptr<sv::library_manager> svm,
@@ -325,7 +325,7 @@ things::explorer::worker::worker(int v, int i,
     header = fmt::format("Worker{}.{}: ", version, i);
 }
 
-int things::explorer::worker::explore_spec(things::config::file_specification* spec)
+int things::explorer::worker::explore_spec(things::config::file_spec* spec)
 {
     auto found = 0;
     if (spec->is_file_query())
@@ -418,7 +418,7 @@ int things::explorer::worker::explore_spec(things::config::file_specification* s
                 vhdl::fast_parser fast(&str, &buffer[0], &buffer[buffer.length()], file.string());
                 auto entries = fast.parse();
 
-                auto lib = manager->get(spec->library->library);
+                auto lib = manager->get(spec->library->name);
                 for (auto& e : entries)
                 {
                     lib->put(e);
@@ -430,7 +430,7 @@ int things::explorer::worker::explore_spec(things::config::file_specification* s
                 sv::fast_parser fast(&sm, file);
                 auto entries = fast.parse();
 
-                auto lib = sv_manager->get(spec->library->library);
+                auto lib = sv_manager->get(spec->library->name);
                 for (auto& [kind, line, column, identifier, identifier2, filename, timestamp] : entries)
                 {
                     lib->put(kind, line, column, identifier, identifier2, filename, timestamp);
@@ -508,7 +508,7 @@ int things::explorer::worker::explore_spec(things::config::file_specification* s
             vhdl::fast_parser fast(&str, &buffer[0], &buffer[buffer.length()], file.string());
             auto entries = fast.parse();
 
-            auto lib = manager->get(spec->library->library);
+            auto lib = manager->get(spec->library->name);
             for (auto& e : entries)
             {
                 lib->put(e);
@@ -520,7 +520,7 @@ int things::explorer::worker::explore_spec(things::config::file_specification* s
             sv::fast_parser fast(&sm, file);
             auto entries = fast.parse();
 
-           auto lib = sv_manager->get(spec->library->library);
+           auto lib = sv_manager->get(spec->library->name);
            for (auto& [kind, line, column, identifier, identifier2, filename, timestamp] : entries)
            {
                lib->put(kind, line, column, identifier, identifier2, filename, timestamp);
@@ -619,7 +619,7 @@ things::explorer::~explorer()
     LOG_S(INFO) << header << "destroyed";
 }
 
-void things::explorer::start(things::config::file_specifications_ptr& q)
+void things::explorer::start(things::config::file_specs_ptr& q)
 {
     progress_bar = client_->create_workdone_progress("background");
     auto number_of_file_specifications = q.size();
@@ -642,7 +642,7 @@ void things::explorer::start(things::config::file_specifications_ptr& q)
     for (unsigned i = 0; i < number_of_threads; i++)
     {
         end += (remainder > 0) ? (length + !!(remainder--)) : length;
-        things::config::file_specifications_ptr e(q.begin() + begin, q.begin() + end);
+        things::config::file_specs_ptr e(q.begin() + begin, q.begin() + end);
         auto w = std::make_unique<worker>(
             version_, i, e, filelist, manager, sv_manager, &progress_,
             std::bind(&things::explorer::send_progress_update, this),

@@ -33,35 +33,35 @@ namespace things
 namespace config
 {
 
-struct library_specification;
+struct library_spec;
 
-struct file_query
+struct file_filter
 {
     std::string directory;
     std::string search;
     std::optional<int> depth;
 };
 
-struct folder_specification
+struct folder_spec
 {
     std::string path;
-    things::config::library_specification* library;
+    things::config::library_spec* library;
 
     int line = -1;   // the line in the vhdl_config.yaml this spec comes from
     int column = -1; // the column in the vhdl_config.yaml this spec comes from
 };
 
-using folder_specifications = std::vector<things::config::folder_specification>;
+using folder_specs = std::vector<things::config::folder_spec>;
 
-struct file_specification
+struct file_spec
 {
     bool is_path() const;
     bool is_file_query() const;
     const std::string& as_path() const;
-    const file_query& as_file_query() const;
+    const file_filter& as_file_query() const;
 
-    things::config::library_specification* library;
-    std::variant<std::string, file_query> content;
+    things::config::library_spec* library;
+    std::variant<std::string, file_filter> content;
 
     int line = -1;   // the line in the vhdl_config.yaml this spec comes from
     int column = -1; // the column in the vhdl_config.yaml this spec comes from
@@ -69,22 +69,22 @@ struct file_specification
     std::string to_string();
 };
 
-using file_specifications = std::vector<things::config::file_specification>;
-using file_specifications_ptr = std::vector<things::config::file_specification*>;
+using file_specs = std::vector<things::config::file_spec>;
+using file_specs_ptr = std::vector<things::config::file_spec*>;
 
-struct library_specification
+struct library_spec
 {
-    std::string library;
-    std::vector<file_specification> files;
-    std::vector<folder_specification> incdirs;
+    std::string name;
+    std::vector<file_spec> files;
+    std::vector<folder_spec> incdirs;
 };
 
-using library_specifications = std::vector<things::config::library_specification>;
+using library_specs = std::vector<things::config::library_spec>;
 
 struct root
 {
-    std::vector<library_specification> vhdl;
-    library_specification sv;
+    std::vector<library_spec> vhdl;
+    library_spec sv;
 };
 
 
@@ -111,7 +111,8 @@ class project
     project& operator=(project&&) = delete;
     ~project() = default;
 
-    //
+    // this is the workspace folder which is also the folder from which the
+    // language server will look for a vhdl_config.yaml file
     void set_project_folder(std::string);
 
     // returns true if this project instance is currently loaded with valid
@@ -177,11 +178,11 @@ class filelist
     // *next pointer for this.
     struct entry
     {
-        things::config::file_specification* spec;
+        things::config::file_spec* spec;
         entry* next;
     };
 
-    void add_entry(std::string, things::config::file_specification*);
+    void add_entry(std::string, things::config::file_spec*);
     entry* get_entry(std::string);
 
     std::mutex mtx_;
@@ -193,9 +194,9 @@ class filelist
 
 };
 
-//
-// this is the background project explorer. Give the project explorer a list of
-// files to browse and it will look for design units in them in the background
+// this is the background project explorer. Give it a list of files (or specs
+// or tasks - unfortunately the naming is not fixed yet) to browse and it will
+// look for design units in them in the background
 class explorer
 {
     public:
@@ -210,7 +211,7 @@ class explorer
     {
         public:
 
-        worker(int, int, things::config::file_specifications_ptr,
+        worker(int, int, things::config::file_specs_ptr,
                std::shared_ptr<things::filelist>,
                std::shared_ptr<vhdl::library_manager>,
                std::shared_ptr<sv::library_manager>,
@@ -224,7 +225,7 @@ class explorer
         worker& operator=(worker&&) = delete;
         ~worker() = default;
 
-        int explore_spec(things::config::file_specification*);
+        int explore_spec(things::config::file_spec*);
         void work();
 
         // request to stop worker
@@ -245,7 +246,7 @@ class explorer
         std::string header;
         int version;
         int id;
-        things::config::file_specifications_ptr specs;
+        std::vector<things::config::file_spec*> specs;
         common::stringtable str;
 
         slang::SourceManager sm;
@@ -276,7 +277,7 @@ class explorer
     ~explorer();
 
     // create workers
-    void start(things::config::file_specifications_ptr&);
+    void start(things::config::file_specs_ptr&);
 
     // stop all workers asap
     void stop();
@@ -342,21 +343,21 @@ struct convert<things::config::root>
             throw RepresentationException(node.Mark(), "Missing a vhdl or "
                                                        "sv section");
         if (has_vhdl)
-            rhs.vhdl = node["vhdl"].as<things::config::library_specifications>();
+            rhs.vhdl = node["vhdl"].as<things::config::library_specs>();
         if (has_sv)
-            rhs.sv = node["sv"].as<things::config::library_specification>();
+            rhs.sv = node["sv"].as<things::config::library_spec>();
         return true;
     }
 };
 
 template <>
-struct convert<things::config::library_specification>
+struct convert<things::config::library_spec>
 {
-    static Node encode(const things::config::library_specification& rhs)
+    static Node encode(const things::config::library_spec& rhs)
     {
         Node node;
 
-        node["library"] = rhs.library;
+        node["name"] = rhs.name;
         for (auto file : rhs.files)
             node["files"].push_back(file);
         for (auto folder : rhs.incdirs)
@@ -365,34 +366,33 @@ struct convert<things::config::library_specification>
         return node;
     }
 
-    static bool decode(const YAML::Node& node, things::config::library_specification& rhs)
+    static bool decode(const YAML::Node& node, things::config::library_spec& rhs)
     {
         if (!node.IsMap())
             return false;
 
-        auto has_library = node["library"].IsDefined();
+        auto has_name = node["name"].IsDefined();
         auto has_files = node["files"].IsDefined();
         auto has_incdirs = node["incdirs"].IsDefined();
 
-        if ((has_library && has_files) == false)
+        if ((has_name && has_files) == false)
             throw RepresentationException(node.Mark(), "a library must contain "
-                                                       "a library and a files "
+                                                       "a name and a files "
                                                        "section");
-        if (has_library)
-            rhs.library = node["library"].as<std::string>();
+        if (has_name)
+            rhs.name = node["name"].as<std::string>();
         if (has_files)
-            rhs.files = node["files"].as<things::config::file_specifications>();
+            rhs.files = node["files"].as<things::config::file_specs>();
         if (has_incdirs)
-            rhs.incdirs =
-                node["incdirs"].as<things::config::folder_specifications>();
+            rhs.incdirs = node["incdirs"].as<things::config::folder_specs>();
         return true;
     }
 };
 
 template<>
-struct convert<things::config::file_query>
+struct convert<things::config::file_filter>
 {
-    static Node encode(const things::config::file_query& rhs)
+    static Node encode(const things::config::file_filter& rhs)
     {
         Node node;
 
@@ -404,7 +404,7 @@ struct convert<things::config::file_query>
         return node;
     }
 
-    static bool decode(const YAML::Node& node, things::config::file_query& rhs)
+    static bool decode(const YAML::Node& node, things::config::file_filter& rhs)
     {
         if (!node.IsMap())
             return false;
@@ -429,9 +429,9 @@ struct convert<things::config::file_query>
 };
 
 template <>
-struct convert<things::config::file_specification>
+struct convert<things::config::file_spec>
 {
-    static Node encode(const things::config::file_specification& rhs)
+    static Node encode(const things::config::file_spec& rhs)
     {
         Node node;
 
@@ -444,7 +444,7 @@ struct convert<things::config::file_specification>
     }
 
     static bool decode(const YAML::Node& node,
-                       things::config::file_specification& rhs)
+                       things::config::file_spec& rhs)
     {
         if ((node.IsScalar() || node.IsMap()) == false)
             throw RepresentationException(node.Mark(), "a file is either a "
@@ -455,8 +455,8 @@ struct convert<things::config::file_specification>
             rhs.content = node.as<std::string>();
         if (node.IsMap())
         {
-            things::config::file_query query;
-            convert<things::config::file_query>::decode(node, query);
+            things::config::file_filter query;
+            convert<things::config::file_filter>::decode(node, query);
             rhs.content = query;
         }
 
@@ -467,9 +467,9 @@ struct convert<things::config::file_specification>
 };
 
 template <>
-struct convert<things::config::folder_specification>
+struct convert<things::config::folder_spec>
 {
-    static Node encode(const things::config::folder_specification& rhs)
+    static Node encode(const things::config::folder_spec& rhs)
     {
         Node node(rhs.path);
 
@@ -477,7 +477,7 @@ struct convert<things::config::folder_specification>
     }
 
     static bool decode(const YAML::Node& node,
-                       things::config::folder_specification& rhs)
+                       things::config::folder_spec& rhs)
     {
         if (!node.IsScalar())
             return false;
