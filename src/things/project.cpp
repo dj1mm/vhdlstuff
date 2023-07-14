@@ -3,6 +3,7 @@
 #include "language.h"
 
 #include <regex>
+#include <utility>
 
 #include "fmt/format.h"
 
@@ -11,41 +12,93 @@
 #include "slang/util/BumpAllocator.h"
 #include "sv/fast_parser.h"
 
-constexpr std::string_view Yaml_Parse_errors                = "Could not parse yaml because of syntax errors.";
-constexpr std::string_view Yaml_File_Not_found              = "{} not found.";
-constexpr std::string_view Yaml_File_No_Vhdl_Libraries      = "Expected a section called libraries.";
-constexpr std::string_view Yaml_File_Invalid_Vhdl_Libraries = "Expected an array of libraries.";
-constexpr std::string_view Yaml_File_No_Sv_Libraries        = "Expected a section called sv.";
-constexpr std::string_view Error_Unnamed_Library            = "Skipping this library because a name was not provided.";
+bool things::config::file_specification::is_path() const
+{
+    return content.index() == 0;
+}
 
-void things::filelist::add_entry(std::string name, std::string library)
+bool things::config::file_specification::is_file_query() const
+{
+    return content.index() == 1;
+}
+
+const std::string& things::config::file_specification::as_path() const
+{
+    return std::get<0>(content);
+}
+
+const things::config::file_query&
+things::config::file_specification::as_file_query() const
+{
+    return std::get<1>(content);
+}
+
+std::string things::config::file_specification::to_string()
+{
+    if (is_path())
+        return fmt::format("{{path: \"{}\"}}", as_path());
+    else if (is_file_query() && as_file_query().depth)
+        return fmt::format("{{dir: \"{}\", search: \"{}\", depth: {}}}",
+                           as_file_query().directory,
+                           as_file_query().search,
+                           as_file_query().depth.value());
+    else if (is_file_query())
+        return fmt::format("{{dir: \"{}\", search: \"{}\"}}",
+                           as_file_query().directory,
+                           as_file_query().search);
+    else
+        return "UNKNOWN FILE SPECIFICATION";
+}
+
+void things::filelist::add_entry(std::string name, things::config::file_specification* spec)
 {
     std::lock_guard guard(mtx_);
     if (path_to_entries.find(name) == path_to_entries.end())
     {
-        things::filelist::entry entry;
-        entry.filename = name;
-        entry.index = total_number_of_files++;
-        entry.libs.push_back(library);
+        // this is the first time we see this file name - so we should just add
+        // it to our filelist.
+        auto entry  = std::make_unique<things::filelist::entry>();
+        entry->next = entry.get();
+        entry->spec = spec;
 
         // we can add the new entry to our repertoire
-        entries.push_back(entry);
-        path_to_entries[name] = entry.index;
+        path_to_entries[name] = entry.get();
+        entries.push_back(std::move(entry));
+
+        // we just added a new entry to the filelist - increment the count
+        total_number_of_files++;
     }
     else
     {
-        entries[path_to_entries[name]].libs.push_back(library);
+        // our filelist already contains an entry for this file - so it seems
+        // the vhdl_config.yaml maps this file to more than one library. Now,
+        // while adding the file to our filelist, we shall link it to the
+        // existing entries.
+        auto existing_entry = path_to_entries[name];
+
+        auto entry  = std::make_unique<things::filelist::entry>();
+        entry->next = existing_entry;
+        entry->spec = spec;
+
+        // this time, we add the new entry to the end of the chain of existing
+        // entries
+        while (existing_entry->next != entry->next)
+            existing_entry = existing_entry->next;
+        existing_entry->next = entry.get();
+
+        // we can add the entry to our repertoire
+        entries.push_back(std::move(entry));
     }
 }
 
-std::optional<things::filelist::entry>
-things::filelist::get_entry(std::string name)
+things::filelist::entry* things::filelist::get_entry(std::string name)
 {
     std::lock_guard guard(mtx_);
-    if (path_to_entries.find(name) == path_to_entries.end())
-        return std::nullopt;
+    auto entry = path_to_entries.find(name);
+    if (entry == path_to_entries.end())
+        return nullptr;
 
-    return entries[path_to_entries[name]];
+    return entry->second;
 }
 
 things::project::project(things::language* s, things::client* c)
@@ -60,7 +113,7 @@ things::project::project(things::language* s, things::client* c)
         std::make_shared<sv::library_manager>(std::nullopt, true);
 
     current_background_explorer_ = std::make_unique<things::explorer>(
-        current_filelist_, current_library_manager_,
+        loaded_version_, current_filelist_, current_library_manager_,
         current_sv_library_manager_,
         std::bind(&things::project::add_message_and_send_to_client, this,
                   std::placeholders::_1),
@@ -106,7 +159,7 @@ void things::project::set_messages_and_send_to_client(
     diagnostics_ = diags;
 
     if (client_)
-        client_->send_diagnostics(*path_to_last_yaml_, diagnostics_);
+        client_->send_diagnostics(*path_to_loaded_yaml_, diagnostics_);
 }
 
 void things::project::add_message_and_send_to_client(common::diagnostic diag)
@@ -115,7 +168,7 @@ void things::project::add_message_and_send_to_client(common::diagnostic diag)
     diagnostics_.push_back(diag);
 
     if (client_)
-        client_->send_diagnostics(*path_to_last_yaml_, diagnostics_);
+        client_->send_diagnostics(*path_to_loaded_yaml_, diagnostics_);
 }
 
 std::shared_ptr<vhdl::library_manager> things::project::
@@ -143,19 +196,16 @@ bool things::project::
     // First thing first: Set things up
     // ------------------------------------------------------------------------
     std::vector<common::diagnostic> diags;
-    std::vector<std::string> names_of_all_libraries;
-    std::vector<things::yaml_entry> all_yaml_entries;
-    std::vector<std::string> all_sv_incdirs;
 
     auto path_to_yaml = project_folder_ / "vhdl_config.yaml";
-    path_to_last_yaml_ = path_to_yaml.string();
-    std::string_view path_to_last_yaml_v(*path_to_last_yaml_);
+    path_to_loaded_yaml_ = path_to_yaml;
+    loaded_version_++;
 
     auto temp_mgr =
         std::make_shared<vhdl::library_manager>(std::nullopt, false);
     auto temp_svm = std::make_shared<sv::library_manager>(std::nullopt, false);
     auto temp_lst = std::make_shared<things::filelist>();
-    auto temp_xpl = std::make_unique<things::explorer>(
+    auto temp_xpl = std::make_unique<things::explorer>(loaded_version_,
         temp_lst, temp_mgr, temp_svm,
         std::bind(&things::project::add_message_and_send_to_client, this,
                   std::placeholders::_1),
@@ -164,176 +214,62 @@ bool things::project::
     // ------------------------------------------------------------------------
     // 1) Load the yaml
     // ------------------------------------------------------------------------
+    std::unique_ptr<things::config::root> vhdl_config;
     try
-    {   // this is here because std::filesystem::absolute can throw
-        if (path_to_yaml.is_relative())
-            path_to_yaml = std::filesystem::absolute(path_to_yaml);
-    }
-    catch (const std::exception& e)
     {
-        // in which case, there is no point to continue
-        set_messages_and_send_to_client(diags);
-        return false;
+        auto node = YAML::LoadFile(path_to_yaml);
+        auto root = node.as<things::config::root>();
+        vhdl_config = std::make_unique<things::config::root>(root);
+        LOG_S(INFO) << "ProjectManager: " << path_to_yaml
+                    << " ver" << loaded_version_ << " loaded";
     }
-
-    if (!std::filesystem::exists(path_to_yaml))
+    catch (const YAML::Exception& e)
     {
-        set_messages_and_send_to_client(diags);
-        return false;
-    }
-
-    try
-    {   // yamlcpp can throw. So catch those wild exceptions
-        auto config = YAML::LoadFile(path_to_yaml.string());
-        if (!config["libraries"])
-        {
-            const auto& m = config.Mark();
-            common::location loc(path_to_last_yaml_v, 1, 1);
-            common::diagnostic diag(Yaml_File_No_Vhdl_Libraries, loc);
-            diags.push_back(diag);
-            set_messages_and_send_to_client(diags);
-            return false;
-        }
-
-        if (!config["libraries"].IsSequence())
-        {
-            const auto& m = config["libraries"].Mark();
-            common::location loc(path_to_last_yaml_v, 1, 1, 1, 1);
-            common::diagnostic diag(Yaml_File_Invalid_Vhdl_Libraries, loc);
-            diags.push_back(diag);
-            set_messages_and_send_to_client(diags);
-            return false;
-        }
-
-        auto libs = config["libraries"];
-
-        for (auto it1 = libs.begin(); it1 != libs.end(); ++it1)
-        {
-            auto lib = it1->as<YAML::Node>();
-            if (!lib["name"])
-            {
-                const auto& m = it1->Mark();
-                common::location loc(path_to_last_yaml_v, m.line, m.column,
-                                     m.line, 0);
-                common::diagnostic diag(Error_Unnamed_Library, loc);
-                diags.push_back(diag);
-                continue;
-            }
-            auto library = lib["name"].as<std::string>();
-            names_of_all_libraries.push_back(library);
-
-            if (!lib["files"])
-                continue;
-
-            auto files = lib["files"];
-            for (auto it2 = files.begin(); it2 != files.end(); ++it2)
-            {
-                auto file = it2->as<YAML::Node>();
-                if (file.IsScalar())
-                {
-                    yaml_entry entry;
-                    entry.kind = yaml_entry::vhdl;
-                    entry.line_number = file.Mark().line;
-                    entry.search = file.as<std::string>();
-                    entry.library = library;
-                    all_yaml_entries.push_back(entry);
-                    continue;
-                }
-
-                if (!file["directory"] && !file["directory"].IsScalar())
-                    continue;
-
-                if (!file["search"] && !file["search"].IsScalar())
-                    continue;
-
-                yaml_entry entry;
-                entry.kind = yaml_entry::vhdl;
-                entry.line_number = file.Mark().line;
-                entry.search = file["search"].as<std::string>();
-                entry.library = library;
-                entry.directory = file["directory"].as<std::string>();
-
-                if (file["depth"] && file["depth"].IsScalar())
-                    entry.depth = file["depth"].as<int>();
-
-                all_yaml_entries.push_back(entry);
-            }
-
-        }
-        if (config["sv"])
-        {
-            if (config["sv"]["incdir"])
-            {
-                auto incdirs = config["sv"]["incdir"];
-                for (auto it1 = incdirs.begin(); it1 != incdirs.end(); ++it1)
-                {
-                    if (it1->IsScalar()){
-                        auto incdir = it1->as<std::string>();
-                        if (incdir.rfind("${workspaceFolder}", 0) == 0)
-                            incdir.replace(0, 18, project_folder_.string());
-                        all_sv_incdirs.push_back(incdir);
-                    }
-                }
-            }
-            if (config["sv"]["files"])
-            {
-                auto files = config["sv"]["files"];
-                for (auto it1 = files.begin(); it1 != files.end(); ++it1)
-                {
-                    if (it1->IsScalar()){
-                        yaml_entry entry;
-                        entry.kind = yaml_entry::sv;
-                        entry.line_number = it1->Mark().line;
-                        entry.search = it1->as<std::string>();
-                        entry.library = "work";
-                        entry.incdirs = &all_sv_incdirs;
-                        all_yaml_entries.push_back(entry);
-                        continue;
-                    }
-
-                    auto file = it1->as<YAML::Node>();
-                    if (!file["directory"] && !file["directory"].IsScalar())
-                        continue;
-
-                    if (!file["search"] && !file["search"].IsScalar())
-                        continue;
-
-                    yaml_entry entry;
-                    entry.kind = yaml_entry::vhdl;
-                    entry.line_number = file.Mark().line;
-                    entry.search = file["search"].as<std::string>();
-                    entry.library = "work";
-                    entry.incdirs = &all_sv_incdirs;
-                    entry.directory = file["directory"].as<std::string>();
-
-                    if (file["depth"] && file["depth"].IsScalar())
-                        entry.depth = file["depth"].as<int>();
-
-                    all_yaml_entries.push_back(entry);
-                }
-
-            }
-        }
-    }
-    catch (const std::exception& e)
-    {
-        common::location loc(path_to_last_yaml_v, 1, 1, 1, 1);
-        common::diagnostic diag(Yaml_Parse_errors, loc);
+        common::location loc(path_to_yaml.string(), e.mark.line, e.mark.column);
+        common::diagnostic diag(e.msg, loc);
         diags.push_back(diag);
         set_messages_and_send_to_client(diags);
+        LOG_S(ERROR) << "ProjectManager: error loading " << path_to_yaml
+                     << " ver" << loaded_version_ << ": " << e.msg;
+        return false;
+    }
+    catch (const std::exception& e)
+    {
+        common::location loc(path_to_yaml.string(), 1, 1);
+        common::diagnostic diag(e.what(), loc);
+        diags.push_back(diag);
+        set_messages_and_send_to_client(diags);
+        LOG_S(ERROR) << "ProjectManager: error loading " << path_to_yaml
+                     << " ver" << loaded_version_ << ": " << e.what();
         return false;
     }
 
+    // ------------------------------------------------------------------------
+    // 1.5) Extract whatever useful information we need
+    // ------------------------------------------------------------------------
+    things::config::file_specifications_ptr filelist_specifications;
+    for (auto& vhdl: vhdl_config->vhdl) {
+        for (auto& file: vhdl.files) {
+            filelist_specifications.push_back(&file);
+            file.library = &vhdl;
+        }
+    }
+    auto& sv = vhdl_config->sv;
+        for (auto& file: sv.files) {
+            filelist_specifications.push_back(&file);
+            file.library = &sv;
+        }
+
+    std::vector<std::string> names_of_all_vhdl_libraries;
+    for (auto vhdl: vhdl_config->vhdl)
+        names_of_all_vhdl_libraries.push_back(vhdl.library);
+    
     // ------------------------------------------------------------------------
     // 2) Reset project variables
     // ------------------------------------------------------------------------
 
     // if we are here, YAML file had no syntax errors and we have something
     // useful to work with.
-    path_to_loaded_yaml_ = path_to_yaml;
-    LOG_S(INFO) << "Project explorer loaded file " << path_to_yaml.string();
-
-    loaded_version_++;
 
     // should we wait? I think so
     current_background_explorer_->stop();
@@ -341,14 +277,16 @@ bool things::project::
     current_background_explorer_.reset(nullptr);
     current_background_explorer_ = std::move(temp_xpl);
 
+    // It is important that all the background explorer works are fully stopped
+    // before resetting the filelist to avoid segfaults
     current_filelist_.reset();
     current_filelist_ = std::move(temp_lst);
-
+    current_filelist_->vhdl_config = std::move(vhdl_config);
 
     // ------------------------------------------------------------------------
     // 3) Kick background indexing
     // ------------------------------------------------------------------------
-    current_background_explorer_->start(all_yaml_entries);
+    current_background_explorer_->start(filelist_specifications);
 
     // ------------------------------------------------------------------------
     // 4) Destroy the old library manager
@@ -357,7 +295,7 @@ bool things::project::
     current_library_manager_->destroy();
     current_library_manager_.reset();
     current_library_manager_ = temp_mgr;
-    current_library_manager_->initialise(names_of_all_libraries);
+    current_library_manager_->initialise(names_of_all_vhdl_libraries);
 
     current_sv_library_manager_->destroy();
     current_sv_library_manager_.reset();
@@ -376,51 +314,58 @@ std::vector<std::string> things::project::get_libraries_this_file_is_part_of(
     if (!entry)
         return {};
 
-    return entry->libs;
+    std::vector<std::string> libs;
+    for (auto head = entry;; entry = entry->next)
+    {
+        libs.push_back(entry->spec->library->library);
+
+        if (entry->next == head)
+            break;
+    }
+    return libs;
 }
 
-things::explorer::worker::worker(int id, std::vector<things::yaml_entry> e,
+things::explorer::worker::worker(int v, int i,
+                                 things::config::file_specifications_ptr s,
                                  std::shared_ptr<things::filelist> f,
                                  std::shared_ptr<vhdl::library_manager> m,
                                  std::shared_ptr<sv::library_manager> svm,
                                  progress* p, std::function<void()> u,
                                  std::function<void(common::diagnostic)> c,
                                  std::string w)
-    : id(id), busy_(false), quit_(false), done_(false), entries(e), manager(m),
-      sv_manager(svm), filelist(f), progress_(p),
-      send_progress_update(u), add_message_and_send_to_client(c),
-      workspace_folder(w)
+    : busy_(false), quit_(false), done_(false), specs(s), manager(m),
+      sv_manager(svm), filelist(f), progress_(p), send_progress_update(u),
+      add_message_and_send_to_client(c), workspace_folder(w), version(v), id(i)
 {
+    header = fmt::format("Worker{}.{}: ", version, i);
 }
 
-int things::explorer::worker::explore_entry(things::yaml_entry& entry)
+int things::explorer::worker::explore_spec(things::config::file_specification* spec)
 {
     auto found = 0;
-    if (entry.directory)
+    if (spec->is_file_query())
     {
-        LOG_S(INFO) << "Exploring " << *entry.directory
-                    << " with filter: " << entry.search;
+        auto& entry = spec->as_file_query();
+        auto directory = entry.directory;
 
-        if (entry.directory->rfind("${workspaceFolder}", 0) == 0)
-            entry.directory->replace(0, 18, workspace_folder);
+        if (directory.rfind("${workspaceFolder}", 0) == 0)
+            directory.replace(0, 18, workspace_folder);
 
-        std::filesystem::path folder(*entry.directory);
+        std::filesystem::path folder(directory);
         if (!std::filesystem::exists(folder))
         {
-            common::location loc("", entry.line_number, 1, entry.line_number,
-                                 1);
+            common::location loc("", spec->line, spec->column);
             common::diagnostic diag("{} does not exist", loc);
-            diag << *entry.directory;
+            diag << directory;
             add_message_and_send_to_client(diag);
             return found;
         }
 
         if (!std::filesystem::is_directory(folder))
         {
-            common::location loc("", entry.line_number, 1, entry.line_number,
-                                 1);
+            common::location loc("", spec->line, spec->column);
             common::diagnostic diag("{} is not a folder", loc);
-            diag << *entry.directory;
+            diag << directory;
             add_message_and_send_to_client(diag);
             return found;
         }
@@ -463,8 +408,10 @@ int things::explorer::worker::explore_entry(things::yaml_entry& entry)
                 continue;
             }
 
+            auto is_vhdl_file = file.extension() == ".vhd" || file.extension() == ".vhdl";
+            auto is_sv_file = file.extension() == ".sv";
 
-            if (entry.kind == yaml_entry::vhdl) {
+            if (is_vhdl_file) {
                 std::ifstream content(file);
                 if (!content.good())
                 {
@@ -480,26 +427,26 @@ int things::explorer::worker::explore_entry(things::yaml_entry& entry)
                 vhdl::fast_parser fast(&str, &buffer[0], &buffer[buffer.length()], file.string());
                 auto entries = fast.parse();
 
-                auto lib = manager->get(entry.library);
+                auto lib = manager->get(spec->library->library);
                 for (auto& e : entries)
                 {
                     lib->put(e);
                 }
                 ++found;
 
-                filelist->add_entry(file.string(), entry.library);
-            } else if (entry.kind == yaml_entry::sv) {
+                filelist->add_entry(file.string(), spec);
+            } else if (is_sv_file) {
                 sv::fast_parser fast(&sm, file);
                 auto entries = fast.parse();
 
-                auto lib = sv_manager->get(entry.library);
+                auto lib = sv_manager->get(spec->library->library);
                 for (auto& [kind, line, column, identifier, identifier2, filename, timestamp] : entries)
                 {
                     lib->put(kind, line, column, identifier, identifier2, filename, timestamp);
                 }
                 ++found;
 
-                filelist->add_entry(file.string(), entry.library);
+                filelist->add_entry(file.string(), spec);
             }
 
             auto is_stopped = quit_.load(std::memory_order_release);
@@ -507,30 +454,28 @@ int things::explorer::worker::explore_entry(things::yaml_entry& entry)
                 break;
         }
     }
-    else
+    else if (spec->is_path())
     {
-        LOG_S(INFO) << "Exploring " << entry.search;
+        auto entry = spec->as_path(); // I want to copy the string voluntarily!
 
-        if (entry.search.rfind("${workspaceFolder}", 0) == 0)
-            entry.search.replace(0, 18, workspace_folder);
+        if (entry.rfind("${workspaceFolder}", 0) == 0)
+            entry.replace(0, 18, workspace_folder);
 
-        std::filesystem::path file(entry.search);
+        std::filesystem::path file(entry);
         if (!std::filesystem::exists(file))
         {
-            common::location loc("", entry.line_number, 1, entry.line_number,
-                                 1);
+            common::location loc("", spec->line, spec->column);
             common::diagnostic diag("{} does not exist", loc);
-            diag << entry.search;
+            diag << entry;
             add_message_and_send_to_client(diag);
             return found;
         }
 
         if (!std::filesystem::is_regular_file(file))
         {
-            common::location loc("", entry.line_number, 1, entry.line_number,
-                                 1);
+            common::location loc("", spec->line, spec->column);
             common::diagnostic diag("{} is not a file", loc);
-            diag << entry.search;
+            diag << entry;
             add_message_and_send_to_client(diag);
             return found;
         }
@@ -547,7 +492,10 @@ int things::explorer::worker::explore_entry(things::yaml_entry& entry)
 
         auto current = progress_->indexed.load();
 
-        if (entry.kind == yaml_entry::vhdl) {
+        auto is_vhdl_file = file.extension() == ".vhd" || file.extension() == ".vhdl";
+        auto is_sv_file = file.extension() == ".sv";
+
+        if (is_vhdl_file) {
             std::ifstream content(file.string());
             if (!content.good())
             {
@@ -563,26 +511,26 @@ int things::explorer::worker::explore_entry(things::yaml_entry& entry)
             vhdl::fast_parser fast(&str, &buffer[0], &buffer[buffer.length()], file.string());
             auto entries = fast.parse();
 
-            auto lib = manager->get(entry.library);
+            auto lib = manager->get(spec->library->library);
             for (auto& e : entries)
             {
                 lib->put(e);
             }
             ++found;
 
-            filelist->add_entry(file.string(), entry.library);
-        } else if (entry.kind == yaml_entry::sv) {
+            filelist->add_entry(file.string(), spec);
+        } else if (is_sv_file) {
             sv::fast_parser fast(&sm, file);
             auto entries = fast.parse();
 
-            auto lib = sv_manager->get(entry.library);
-            for (auto& [kind, line, column, identifier, identifier2, filename, timestamp] : entries)
-            {
-                lib->put(kind, line, column, identifier, identifier2, filename, timestamp);
-            }
+           auto lib = sv_manager->get(spec->library->library);
+           for (auto& [kind, line, column, identifier, identifier2, filename, timestamp] : entries)
+           {
+               lib->put(kind, line, column, identifier, identifier2, filename, timestamp);
+           }
             ++found;
 
-            filelist->add_entry(file.string(), entry.library);
+            filelist->add_entry(file.string(), spec);
         }
     }
     return found;
@@ -590,17 +538,15 @@ int things::explorer::worker::explore_entry(things::yaml_entry& entry)
 
 void things::explorer::worker::work()
 {
-    auto worker_name = "Explorer" + std::to_string(id);
-
-    auto thread_name = "xpl" + std::to_string(id) + " thread";
+    auto thread_name = fmt::format("worker{}.{} thread", version, id);
     loguru::set_thread_name(thread_name.c_str());
 
     done_.store(false, std::memory_order_relaxed);
     busy_.store(false, std::memory_order_relaxed);
 
-    LOG_S(INFO) << worker_name << " started";
+    LOG_S(INFO) << header << "handling " << specs.size() << " requests";
 
-    for (auto entry: entries)
+    for (auto spec: specs)
     {
         auto current_indexed = progress_->indexed.load();
         send_progress_update();
@@ -613,13 +559,13 @@ void things::explorer::worker::work()
 
         try
         {
-            auto found = explore_entry(entry);
+            auto found = explore_spec(spec);
             progress_->indexed = current_indexed + found;
-            LOG_S(INFO) << "Found " << found << " files";
+            LOG_S(INFO) << header << "Found " << found << " files for " << spec->to_string();
         }
         catch (const std::exception& e)
         {
-            LOG_S(ERROR) << worker_name << " " << e.what();
+            LOG_S(ERROR) << header << "" << e.what() << " for " << spec->to_string();
         }
 
         progress_->completed++;
@@ -627,7 +573,7 @@ void things::explorer::worker::work()
     }
     send_progress_update();
 
-    LOG_S(INFO) << worker_name << " done";
+    LOG_S(INFO) << header << "done";
     done_.store(true, std::memory_order_relaxed);
 }
 
@@ -648,7 +594,7 @@ bool things::explorer::worker::completed()
     return quit && done;
 }
 
-things::explorer::explorer(std::shared_ptr<things::filelist> f,
+things::explorer::explorer(int v, std::shared_ptr<things::filelist> f,
                            std::shared_ptr<vhdl::library_manager> m,
                            std::shared_ptr<sv::library_manager> svm,
                            std::function<void(common::diagnostic)> cb,
@@ -656,9 +602,10 @@ things::explorer::explorer(std::shared_ptr<things::filelist> f,
                            std::string w)
     : filelist(f), manager(m), sv_manager(svm),
       add_message_and_send_to_client(cb), server_(s), client_(c),
-      workspace_folder(w)
+      workspace_folder(w), version_(v)
 {
-    LOG_S(INFO) << "Project explorer constructed";
+    header = fmt::format("Explorer{}: ", version_);
+    LOG_S(INFO) << header << "constructed";
 }
 
 things::explorer::~explorer()
@@ -672,33 +619,35 @@ things::explorer::~explorer()
             thread.join();
     }
 
-    LOG_S(INFO) << "Project explorer destroyed";
+    LOG_S(INFO) << header << "destroyed";
 }
 
-void things::explorer::start(std::vector<things::yaml_entry>& q)
+void things::explorer::start(things::config::file_specifications_ptr& q)
 {
     progress_bar = client_->create_workdone_progress("background");
-    auto number_of_yaml_entries = q.size();
+    auto number_of_file_specifications = q.size();
 
     // init thread pool
     auto number_of_threads = 1;
 
+    LOG_S(INFO) << header << "distributing " << number_of_file_specifications << " requests across " << number_of_threads << " workers";
+
     //
-    auto length    = number_of_yaml_entries / number_of_threads;
-    auto remainder = number_of_yaml_entries % number_of_threads;
+    auto length    = number_of_file_specifications / number_of_threads;
+    auto remainder = number_of_file_specifications % number_of_threads;
 
     progress_.indexed.store(0);
     progress_.completed.store(0, std::memory_order_relaxed);
-    progress_.total.store(number_of_yaml_entries, std::memory_order_relaxed);
+    progress_.total.store(number_of_file_specifications, std::memory_order_relaxed);
 
     auto begin = 0;
     auto end = 0;
     for (unsigned i = 0; i < number_of_threads; i++)
     {
         end += (remainder > 0) ? (length + !!(remainder--)) : length;
-        std::vector<things::yaml_entry> e(q.begin() + begin, q.begin() + end);
+        things::config::file_specifications_ptr e(q.begin() + begin, q.begin() + end);
         auto w = std::make_unique<worker>(
-            i, e, filelist, manager, sv_manager, &progress_,
+            version_, i, e, filelist, manager, sv_manager, &progress_,
             std::bind(&things::explorer::send_progress_update, this),
             add_message_and_send_to_client, workspace_folder);
 
@@ -719,9 +668,9 @@ void things::explorer::stop()
 void things::explorer::join()
 {
     // wait for workers to complete
-    LOG_S(INFO) << "Waiting for workers to complete";
+    LOG_S(INFO) << header << "Waiting for workers to be done";
     while (std::any_of(workers.begin(), workers.end(),
-                       [](auto& w) { return w->busy(); }))
+                       [](auto& w) { return !w->completed(); }))
         ;
 }
 

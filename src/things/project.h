@@ -28,6 +28,69 @@
 namespace things
 {
 
+// This namespace holds the c++ classes to model the content and to parse the
+// contents of the vjhdl_config.yaml file.
+namespace config
+{
+
+struct library_specification;
+
+struct file_query
+{
+    std::string directory;
+    std::string search;
+    std::optional<int> depth;
+};
+
+struct folder_specification
+{
+    std::string path;
+    things::config::library_specification* library;
+
+    int line = -1;   // the line in the vhdl_config.yaml this spec comes from
+    int column = -1; // the column in the vhdl_config.yaml this spec comes from
+};
+
+using folder_specifications = std::vector<things::config::folder_specification>;
+
+struct file_specification
+{
+    bool is_path() const;
+    bool is_file_query() const;
+    const std::string& as_path() const;
+    const file_query& as_file_query() const;
+
+    things::config::library_specification* library;
+    std::variant<std::string, file_query> content;
+
+    int line = -1;   // the line in the vhdl_config.yaml this spec comes from
+    int column = -1; // the column in the vhdl_config.yaml this spec comes from
+
+    std::string to_string();
+};
+
+using file_specifications = std::vector<things::config::file_specification>;
+using file_specifications_ptr = std::vector<things::config::file_specification*>;
+
+struct library_specification
+{
+    std::string library;
+    std::vector<file_specification> files;
+    std::vector<folder_specification> incdirs;
+};
+
+using library_specifications = std::vector<things::config::library_specification>;
+
+struct root
+{
+    std::vector<library_specification> vhdl;
+    library_specification sv;
+};
+
+
+
+} // namespace config
+
 // forward declaration is needed because of reasons...
 class filelist;
 class explorer;
@@ -80,7 +143,6 @@ class project
     private:
     std::filesystem::path project_folder_;
 
-    std::optional<std::string> path_to_last_yaml_;
     std::optional<std::filesystem::path> path_to_loaded_yaml_;
 
     // I dont think the filelist need to be protected by a mutex. Only the main
@@ -103,42 +165,38 @@ class project
     friend explorer;
 };
 
-// filelist keeps track of the list of files (or entries) vhdlstuff currently
-// knows about and which library(ies) each of them belongs to.
+// The filelist object keeps track of the list of files (or file entries) the
+// language server is currently aware of and which library(ies) each of them
+// belongs to.
 class filelist
 {
     public:
 
-    // this structure represents an entry in the filelist
+    // this structure represents a file (or an entry) in the filelist.
+    //
+    // Each file (or entry) can be mapped exactly to a file specification in
+    // the vhdl_config.yaml. This is the *spec pointer.
+    //
+    // It is possible that the vhdl_config.yaml written by the programmer
+    // assigns a file to multiple libraries - which is wrong. We still want to
+    // represent this in the filelist so errors can be generated. We use the
+    // *next pointer for this.
     struct entry
     {
-        std::string filename;
-        std::vector<std::string> libs;
-        int index;
+        things::config::file_specification* spec;
+        entry* next;
     };
 
-    void add_entry(std::string, std::string);
-    std::optional<entry> get_entry(std::string);
+    void add_entry(std::string, things::config::file_specification*);
+    entry* get_entry(std::string);
 
     std::mutex mtx_;
-    std::vector<entry> entries;
-    std::unordered_map<std::string, int> path_to_entries;
+    std::vector<std::unique_ptr<entry>> entries;
+    std::unordered_map<std::string, entry*> path_to_entries;
     int total_number_of_files = 0;
 
-};
+    std::unique_ptr<things::config::root> vhdl_config;
 
-// A yaml entry is a entry from the vhdl_config.yaml file, not to be confused
-// with the filelist::entry which is an internal data structure
-struct yaml_entry
-{
-    enum { vhdl, sv } kind;
-    std::string search;
-    std::string library;
-    std::vector<std::string>* incdirs;
-
-    std::optional<std::string> directory;
-    std::optional<int> depth;
-    int line_number = 0;
 };
 
 //
@@ -158,7 +216,7 @@ class explorer
     {
         public:
 
-        worker(int, std::vector<things::yaml_entry>,
+        worker(int, int, things::config::file_specifications_ptr,
                std::shared_ptr<things::filelist>,
                std::shared_ptr<vhdl::library_manager>,
                std::shared_ptr<sv::library_manager>,
@@ -172,7 +230,7 @@ class explorer
         worker& operator=(worker&&) = delete;
         ~worker() = default;
 
-        int explore_entry(things::yaml_entry&);
+        int explore_spec(things::config::file_specification*);
         void work();
 
         // request to stop worker
@@ -190,8 +248,10 @@ class explorer
         std::atomic_bool quit_;
         std::atomic_bool done_;
 
+        std::string header;
+        int version;
         int id;
-        std::vector<things::yaml_entry> entries;
+        things::config::file_specifications_ptr specs;
         common::stringtable str;
 
         slang::SourceManager sm;
@@ -209,7 +269,7 @@ class explorer
 
     public:
 
-    explorer(std::shared_ptr<things::filelist>,
+    explorer(int, std::shared_ptr<things::filelist>,
              std::shared_ptr<vhdl::library_manager>,
              std::shared_ptr<sv::library_manager>,
              std::function<void(common::diagnostic)>, things::language*,
@@ -221,7 +281,7 @@ class explorer
     ~explorer();
 
     // create workers
-    void start(std::vector<things::yaml_entry>&);
+    void start(things::config::file_specifications_ptr&);
 
     // stop all workers asap
     void stop();
@@ -249,9 +309,192 @@ class explorer
     std::string workspace_folder;
 
     std::optional<things::workdone_progress_bar> progress_bar;
+    int version_;
+    std::string header;
 
 };
 
-}
+} // namespace things
+
+namespace YAML
+{
+
+// these are the parsers to automatically convert a vhdl_config.yaml to its
+// corresponding hierarchy of c++ classes.
+
+template <>
+struct convert<things::config::root>
+{
+    static Node encode(const things::config::root& rhs)
+    {
+        Node node;
+
+        node["vhdl"] = rhs.vhdl;
+        node["sv"] = rhs.sv;
+
+        return node;
+    }
+
+    static bool decode(const YAML::Node& node, things::config::root& rhs)
+    {
+        if (!node.IsMap())
+            return false;
+
+        auto has_vhdl = node["vhdl"].IsDefined();
+        auto has_sv = node["sv"].IsDefined();
+
+        if ((has_vhdl || has_sv) == false)
+            throw RepresentationException(node.Mark(), "Missing a vhdl or "
+                                                       "sv section");
+        if (has_vhdl)
+            rhs.vhdl = node["vhdl"].as<things::config::library_specifications>();
+        if (has_sv)
+            rhs.sv = node["sv"].as<things::config::library_specification>();
+        return true;
+    }
+};
+
+template <>
+struct convert<things::config::library_specification>
+{
+    static Node encode(const things::config::library_specification& rhs)
+    {
+        Node node;
+
+        node["library"] = rhs.library;
+        for (auto file : rhs.files)
+            node["files"].push_back(file);
+        for (auto folder : rhs.incdirs)
+            node["incdirs"].push_back(folder);
+
+        return node;
+    }
+
+    static bool decode(const YAML::Node& node, things::config::library_specification& rhs)
+    {
+        if (!node.IsMap())
+            return false;
+
+        auto has_library = node["library"].IsDefined();
+        auto has_files = node["files"].IsDefined();
+        auto has_incdirs = node["incdirs"].IsDefined();
+
+        if ((has_library && has_files) == false)
+            throw RepresentationException(node.Mark(), "a library must contain "
+                                                       "a library and a files "
+                                                       "section");
+        if (has_library)
+            rhs.library = node["library"].as<std::string>();
+        if (has_files)
+            rhs.files = node["files"].as<things::config::file_specifications>();
+        if (has_incdirs)
+            rhs.incdirs =
+                node["incdirs"].as<things::config::folder_specifications>();
+        return true;
+    }
+};
+
+template<>
+struct convert<things::config::file_query>
+{
+    static Node encode(const things::config::file_query& rhs)
+    {
+        Node node;
+
+        node["directory"] = rhs.directory;
+        node["search"] = rhs.search;
+        if (rhs.depth.has_value())
+            node["depth"] = rhs.depth.value();
+
+        return node;
+    }
+
+    static bool decode(const YAML::Node& node, things::config::file_query& rhs)
+    {
+        if (!node.IsMap())
+            return false;
+
+        auto has_directory = node["directory"].IsDefined();
+        auto has_search = node["search"].IsDefined();
+        auto has_depth = node["depth"].IsDefined();
+
+        if ((has_directory && has_search) == false)
+            throw RepresentationException(node.Mark(),
+                                          "a file specification must contain a "
+                                          "directory and a search field");
+        if (has_directory)
+            rhs.directory = node["directory"].as<std::string>();
+        if (has_search)
+            rhs.search = node["search"].as<std::string>();
+        if (has_depth)
+            rhs.depth = node["depth"].as<int>();
+
+        return true;
+    }
+};
+
+template <>
+struct convert<things::config::file_specification>
+{
+    static Node encode(const things::config::file_specification& rhs)
+    {
+        Node node;
+
+        if (rhs.is_path())
+            node = rhs.as_path();
+        if (rhs.is_file_query())
+            node = rhs.as_file_query();
+
+        return node;
+    }
+
+    static bool decode(const YAML::Node& node,
+                       things::config::file_specification& rhs)
+    {
+        if ((node.IsScalar() || node.IsMap()) == false)
+            throw RepresentationException(node.Mark(), "a file is either a "
+                                                       "string or a file "
+                                                       "specification");
+
+        if (node.IsScalar())
+            rhs.content = node.as<std::string>();
+        if (node.IsMap())
+        {
+            things::config::file_query query;
+            convert<things::config::file_query>::decode(node, query);
+            rhs.content = query;
+        }
+
+        rhs.line = node.Mark().line + 1;
+        rhs.column = node.Mark().column + 1;
+        return true;
+    }
+};
+
+template <>
+struct convert<things::config::folder_specification>
+{
+    static Node encode(const things::config::folder_specification& rhs)
+    {
+        Node node(rhs.path);
+
+        return node;
+    }
+
+    static bool decode(const YAML::Node& node,
+                       things::config::folder_specification& rhs)
+    {
+        if (!node.IsScalar())
+            return false;
+
+        rhs.path = node.as<std::string>();
+
+        rhs.line = node.Mark().line + 1;
+        rhs.column = node.Mark().column + 1;
+        return true;
+    }
+};
+
+} // namespace YAML
 
 #endif
