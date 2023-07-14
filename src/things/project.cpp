@@ -101,9 +101,9 @@ things::filelist::entry* things::filelist::get_entry(std::string name)
     return entry->second;
 }
 
-things::project::project(things::language* s, things::client* c)
-    : project_folder_(std::filesystem::current_path()), server_(s), client_(c),
-      loaded_version_(0)
+things::project::project(std::function<void()> cb, things::client* c)
+    : project_folder_(std::filesystem::current_path()), client_(c),
+      loaded_version_(0), on_all_requests_completed(cb)
 {
     current_filelist_ = std::make_shared<things::filelist>();
 
@@ -116,7 +116,7 @@ things::project::project(things::language* s, things::client* c)
         loaded_version_, current_filelist_, current_library_manager_,
         current_sv_library_manager_,
         path_to_loaded_yaml_.value_or(""),
-        server_, client_, project_folder_.string());
+        on_all_requests_completed, client_, project_folder_.string());
 }
 
 void things::project::set_project_folder(std::string folder)
@@ -188,7 +188,7 @@ bool things::project::
     auto temp_xpl = std::make_unique<things::explorer>(loaded_version_,
         temp_lst, temp_mgr, temp_svm,
         path_to_loaded_yaml_.value_or(""),
-        server_, client_, project_folder_.string());
+        on_all_requests_completed, client_, project_folder_.string());
 
     // ------------------------------------------------------------------------
     // 1) Load the yaml
@@ -199,8 +199,8 @@ bool things::project::
         auto node = YAML::LoadFile(path_to_yaml);
         auto root = node.as<things::config::root>();
         vhdl_config = std::make_unique<things::config::root>(root);
-        LOG_S(INFO) << "ProjectManager: " << path_to_yaml
-                    << " ver" << loaded_version_ << " loaded";
+        LOG_S(INFO) << "ProjectManager: loaded " << path_to_yaml.string()
+                    << " ver" << loaded_version_;
     }
     catch (const YAML::Exception& e)
     {
@@ -211,7 +211,7 @@ bool things::project::
         diag.range.end.line        = e.mark.line-1;
         diag.range.end.character   = e.mark.column-1;
         client_->send_persistent_diagnostic(path_to_yaml, diag);
-        LOG_S(ERROR) << "ProjectManager: error loading " << path_to_yaml
+        LOG_S(ERROR) << "ProjectManager: error loading " << path_to_yaml.string()
                      << " ver" << loaded_version_ << ": " << e.msg;
         return false;
     }
@@ -310,16 +310,62 @@ std::vector<std::string> things::project::get_libraries_this_file_is_part_of(
     return libs;
 }
 
+things::compass::compass(int total, std::function<void()> callback,
+                         std::optional<things::workdone_progress_bar> bar)
+    : number_of_files_found(0),
+      number_of_requests_completed(0),
+      total_number_of_requests(total),
+      on_all_requests_completed(callback),
+      progress_bar(std::move(bar))
+{
+
+}
+
+void things::compass::i_just_completed_a_request(int found)
+{
+    unsigned int indexed = 0;
+    unsigned int total = 0;
+    unsigned int completed = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        number_of_files_found += found;
+        indexed = number_of_files_found;
+        total = total_number_of_requests;
+        completed = ++number_of_requests_completed;
+    }
+    auto p = total == 0 ? 100 : completed * 100 / total;
+    auto msg = fmt::format("Found {} files. (Done/Total = {}/{}).",
+                           indexed, completed, total);
+
+    if (progress_bar)
+    {
+        progress_bar->report(p, msg);
+    }
+
+    if (completed == total && on_all_requests_completed)
+    {
+        on_all_requests_completed();
+        on_all_requests_completed = nullptr;
+        progress_bar.reset();
+    }
+}
+
+int things::compass::get_number_of_files_found()
+{
+    std::lock_guard<std::mutex> lock(mutex);
+    return number_of_files_found;
+}
+
 things::explorer::worker::worker(int v, int i,
                                  things::config::file_specs_ptr s,
                                  std::shared_ptr<things::filelist> f,
                                  std::shared_ptr<vhdl::library_manager> m,
                                  std::shared_ptr<sv::library_manager> svm,
-                                 progress* p, std::function<void()> u,
+                                 std::shared_ptr<things::compass> p,
                                  std::string y, things::client* c ,
                                  std::string w)
     : busy_(false), quit_(false), done_(false), specs(s), manager(m),
-      sv_manager(svm), filelist(f), progress_(p), send_progress_update(u),
+      sv_manager(svm), filelist(f), progress(p),
       client_(c), workspace_folder(w), version(v), id(i), path_to_yaml(y)
 {
     header = fmt::format("Worker{}.{}: ", version, i);
@@ -361,8 +407,6 @@ int things::explorer::worker::explore_spec(things::config::file_spec* spec)
             return found;
         }
 
-        auto current = progress_->indexed.load();
-
         std::regex regex(entry.search, std::regex_constants::icase |
                                            std::regex_constants::ECMAScript);
         for (auto& p : std::filesystem::recursive_directory_iterator(folder))
@@ -381,12 +425,6 @@ int things::explorer::worker::explore_spec(things::config::file_spec* spec)
             if (!std::regex_search(filename.c_str(), match, regex))
             {
                 continue;
-            }
-
-            if (found % 123 == 0)
-            {
-                progress_->indexed.store(current + found);
-                send_progress_update();
             }
 
             try
@@ -487,8 +525,6 @@ int things::explorer::worker::explore_spec(things::config::file_spec* spec)
             return found;
         }
 
-        auto current = progress_->indexed.load();
-
         auto is_vhdl_file = file.extension() == ".vhd" || file.extension() == ".vhdl";
         auto is_sv_file = file.extension() == ".sv";
 
@@ -545,9 +581,6 @@ void things::explorer::worker::work()
 
     for (auto spec: specs)
     {
-        auto current_indexed = progress_->indexed.load();
-        send_progress_update();
-
         auto is_stopped = quit_.load(std::memory_order_release);
         if (is_stopped)
             break;
@@ -557,18 +590,17 @@ void things::explorer::worker::work()
         try
         {
             auto found = explore_spec(spec);
-            progress_->indexed = current_indexed + found;
-            LOG_S(INFO) << header << "Found " << found << " files for " << spec->to_string();
+            progress->i_just_completed_a_request(found);
+            LOG_S(INFO) << header << fmt::format("Found {: >3d} files for ", found) << spec->to_string();
         }
         catch (const std::exception& e)
         {
-            LOG_S(ERROR) << header << "" << e.what() << " for " << spec->to_string();
+            progress->i_just_completed_a_request(0);
+            LOG_S(ERROR) << header << e.what() << " for " << spec->to_string();
         }
 
-        progress_->completed++;
         busy_.store(false, std::memory_order_relaxed);
     }
-    send_progress_update();
 
     LOG_S(INFO) << header << "done";
     done_.store(true, std::memory_order_relaxed);
@@ -595,10 +627,10 @@ things::explorer::explorer(int v, std::shared_ptr<things::filelist> f,
                            std::shared_ptr<vhdl::library_manager> m,
                            std::shared_ptr<sv::library_manager> svm,
                            std::string y,
-                           things::language* s, things::client* c,
+                           std::function<void()> cb, things::client* c,
                            std::string w)
     : filelist(f), manager(m), sv_manager(svm),
-      path_to_yaml(y), server_(s), client_(c),
+      path_to_yaml(y), on_all_requests_completed(cb), client_(c),
       workspace_folder(w), version_(v)
 {
     header = fmt::format("Explorer{}: ", version_);
@@ -621,21 +653,22 @@ things::explorer::~explorer()
 
 void things::explorer::start(things::config::file_specs_ptr& q)
 {
-    progress_bar = client_->create_workdone_progress("background");
-    auto number_of_file_specifications = q.size();
+    auto number_of_requests = q.size();
 
     // init thread pool
     auto number_of_threads = 1;
 
-    LOG_S(INFO) << header << "distributing " << number_of_file_specifications << " requests across " << number_of_threads << " workers";
+    LOG_S(INFO) << header << "distributing " << number_of_requests
+                << " requests across " << number_of_threads << " workers";
 
     //
-    auto length    = number_of_file_specifications / number_of_threads;
-    auto remainder = number_of_file_specifications % number_of_threads;
+    auto length    = number_of_requests / number_of_threads;
+    auto remainder = number_of_requests % number_of_threads;
 
-    progress_.indexed.store(0);
-    progress_.completed.store(0, std::memory_order_relaxed);
-    progress_.total.store(number_of_file_specifications, std::memory_order_relaxed);
+    auto progress = std::make_shared<things::compass>(
+        number_of_requests,
+        on_all_requests_completed,
+        client_->create_workdone_progress("background"));
 
     auto begin = 0;
     auto end = 0;
@@ -644,8 +677,7 @@ void things::explorer::start(things::config::file_specs_ptr& q)
         end += (remainder > 0) ? (length + !!(remainder--)) : length;
         things::config::file_specs_ptr e(q.begin() + begin, q.begin() + end);
         auto w = std::make_unique<worker>(
-            version_, i, e, filelist, manager, sv_manager, &progress_,
-            std::bind(&things::explorer::send_progress_update, this),
+            version_, i, e, filelist, manager, sv_manager, progress,
             path_to_yaml, client_, workspace_folder);
 
         std::thread thread(std::bind(&worker::work, w.get()));
@@ -680,22 +712,4 @@ bool things::explorer::done()
     }
 
     return done;
-}
-
-void things::explorer::send_progress_update()
-{
-    auto p = progress_.total == 0? 100 : progress_.completed * 100 / progress_.total;
-    auto msg = fmt::format("Found {} files. (Running/Done/Total = 1/{}/{}).", progress_.indexed, progress_.completed, progress_.total);
-    client_->log_message(msg);
-
-    if (progress_bar)
-    {
-        progress_bar->report(p, msg);
-    }
-
-    if (progress_.completed == progress_.total)
-    {
-        server_->working_files.update_all_files();
-        progress_bar.reset();
-    }
 }

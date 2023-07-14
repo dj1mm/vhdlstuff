@@ -104,7 +104,7 @@ class project
 {
     public:
 
-    project(language*, client*);
+    project(std::function<void()>, client*);
     project(const project&) = delete;
     project(project&&) = delete;
     project& operator=(const project&) = delete;
@@ -152,7 +152,7 @@ class project
     std::shared_ptr<vhdl::library_manager> current_library_manager_;
     std::shared_ptr<sv::library_manager> current_sv_library_manager_;
 
-    things::language* server_;
+    std::function<void()> on_all_requests_completed;
     things::client* client_;
 
     std::atomic_int loaded_version_;
@@ -194,18 +194,36 @@ class filelist
 
 };
 
+//
+// this is the class that tracks the explorer's doing and the amount of work
+// (or file specifications) it has left to go through. This class is also used
+// to report the progress to the lsp client
+//
+class compass
+{
+    std::mutex mutex;
+    unsigned number_of_files_found;
+    unsigned number_of_requests_completed;
+    const unsigned total_number_of_requests;
+
+    std::function<void()> on_all_requests_completed;
+    std::optional<things::workdone_progress_bar> progress_bar;
+
+    public:
+    compass(int, std::function<void()>,
+            std::optional<things::workdone_progress_bar>);
+
+    void i_just_completed_a_request(int found);
+
+    int get_number_of_files_found();
+};
+
 // this is the background project explorer. Give it a list of files (or specs
 // or tasks - unfortunately the naming is not fixed yet) to browse and it will
 // look for design units in them in the background
 class explorer
 {
     public:
-    struct progress
-    {
-        std::atomic_int indexed;
-        std::atomic_int completed;
-        std::atomic_int total;
-    };
 
     class worker
     {
@@ -215,7 +233,7 @@ class explorer
                std::shared_ptr<things::filelist>,
                std::shared_ptr<vhdl::library_manager>,
                std::shared_ptr<sv::library_manager>,
-               progress*, std::function<void()>,
+               std::shared_ptr<compass>,
                std::string, client*, std::string);
 
         // worker is not movable not copyable
@@ -255,8 +273,7 @@ class explorer
         std::shared_ptr<vhdl::library_manager> manager;
         std::shared_ptr<sv::library_manager> sv_manager;
 
-        progress* progress_;
-        std::function<void()> send_progress_update;
+        std::shared_ptr<things::compass> progress;
         std::string path_to_yaml;
         client* client_;
         std::string workspace_folder;
@@ -268,7 +285,7 @@ class explorer
     explorer(int, std::shared_ptr<things::filelist>,
              std::shared_ptr<vhdl::library_manager>,
              std::shared_ptr<sv::library_manager>,
-             std::string, things::language*,
+             std::string, std::function<void()>,
              things::client*, std::string);
     explorer(const explorer&) = delete;
     explorer(explorer&&) = delete;
@@ -288,8 +305,6 @@ class explorer
     // return true if background indexing is done.
     bool done();
 
-    void send_progress_update();
-
     private:
 
     std::vector<std::unique_ptr<worker>> workers;
@@ -299,12 +314,13 @@ class explorer
     std::shared_ptr<vhdl::library_manager> manager;
     std::shared_ptr<sv::library_manager> sv_manager;
     std::string path_to_yaml;
-    progress progress_;
+    std::shared_ptr<things::compass> progress;
     things::language* server_;
     things::client* client_;
     std::string workspace_folder;
 
-    std::optional<things::workdone_progress_bar> progress_bar;
+    std::function<void()> on_all_requests_completed;
+
     int version_;
     std::string header;
 

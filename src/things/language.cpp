@@ -3,8 +3,11 @@
 
 #include "common/loguru.h"
 #include "vhdl/ast.h"
+
 things::language::language(lsp::connection* connection)
-    : server(connection), client(frontend.get()), project(this, &client),
+    : server(connection), client(frontend.get()),
+      project(std::bind(&things::language::update_all_working_files, this),
+              &client),
       working_files(this, &client, false)
 // False there means that working_files will have a seperate thread for each
 // file that is `opened`
@@ -195,3 +198,9 @@ void things::language::on_workspace_did_change_watched_files(
     LOG_S(INFO) << "Language Server workspace/didChangeWatchedFiles";
     project.reload_yaml_reset_project_kick_background_index_destroy_libraries();
 }
+
+void things::language::update_all_working_files()
+{
+    working_files.update_all_files();
+}
+

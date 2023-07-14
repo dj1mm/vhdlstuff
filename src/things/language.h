@@ -50,6 +50,8 @@ class language: public lsp::server
     //
     void on_workspace_did_change_watched_files(std::shared_ptr<lsp::incoming_notification>);
 
+    void update_all_working_files();
+
     things::capabilities capabilities;
 
     private:
