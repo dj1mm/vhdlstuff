@@ -169,6 +169,36 @@ void things::client::send_diagnostics(
     notify("textDocument/publishDiagnostics", json);
 }
 
+void things::client::send_persistent_diagnostic(std::string file, lsp::diagnostic& diagnostic)
+{
+    std::lock_guard lock(persistent_diagnostics_mtx);
+
+    auto& diagnostics = persistent_diagnostics[file];
+    diagnostics.push_back(diagnostic);
+
+    lsp::publish_diagnostics_params params;
+    params.uri.set_path(file);
+    params.diagnostics = diagnostics;
+
+    auto json = serialize::to_json(params);
+    notify("textDocument/publishDiagnostics", json);
+}
+
+void things::client::clear_persistent_diagnostic(std::string file)
+{
+    std::lock_guard lock(persistent_diagnostics_mtx);
+
+    auto& diagnostics = persistent_diagnostics[file];
+    diagnostics.clear();
+
+    lsp::publish_diagnostics_params params;
+    params.uri.set_path(file);
+    params.diagnostics = diagnostics;
+
+    auto json = serialize::to_json(params);
+    notify("textDocument/publishDiagnostics", json);
+}
+
 std::optional<things::workdone_progress_bar> things::client::create_workdone_progress(std::string t)
 {
     if (workdone_progress_bar_visible.load())

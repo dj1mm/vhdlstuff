@@ -115,8 +115,7 @@ things::project::project(things::language* s, things::client* c)
     current_background_explorer_ = std::make_unique<things::explorer>(
         loaded_version_, current_filelist_, current_library_manager_,
         current_sv_library_manager_,
-        std::bind(&things::project::add_message_and_send_to_client, this,
-                  std::placeholders::_1),
+        path_to_loaded_yaml_.value_or(""),
         server_, client_, project_folder_.string());
 }
 
@@ -152,25 +151,6 @@ bool things::project::libraries_have_been_populated()
     return false;
 }
 
-void things::project::set_messages_and_send_to_client(
-    std::vector<common::diagnostic>& diags)
-{
-    std::lock_guard lock(cb_mtx_);
-    diagnostics_ = diags;
-
-    if (client_)
-        client_->send_diagnostics(*path_to_loaded_yaml_, diagnostics_);
-}
-
-void things::project::add_message_and_send_to_client(common::diagnostic diag)
-{
-    std::lock_guard lock(cb_mtx_);
-    diagnostics_.push_back(diag);
-
-    if (client_)
-        client_->send_diagnostics(*path_to_loaded_yaml_, diagnostics_);
-}
-
 std::shared_ptr<vhdl::library_manager> things::project::
     get_current_library_manager()
 {
@@ -195,7 +175,7 @@ bool things::project::
     // ------------------------------------------------------------------------
     // First thing first: Set things up
     // ------------------------------------------------------------------------
-    std::vector<common::diagnostic> diags;
+
 
     auto path_to_yaml = project_folder_ / "vhdl_config.yaml";
     path_to_loaded_yaml_ = path_to_yaml;
@@ -207,8 +187,7 @@ bool things::project::
     auto temp_lst = std::make_shared<things::filelist>();
     auto temp_xpl = std::make_unique<things::explorer>(loaded_version_,
         temp_lst, temp_mgr, temp_svm,
-        std::bind(&things::project::add_message_and_send_to_client, this,
-                  std::placeholders::_1),
+        path_to_loaded_yaml_.value_or(""),
         server_, client_, project_folder_.string());
 
     // ------------------------------------------------------------------------
@@ -225,20 +204,26 @@ bool things::project::
     }
     catch (const YAML::Exception& e)
     {
-        common::location loc(path_to_yaml.string(), e.mark.line, e.mark.column);
-        common::diagnostic diag(e.msg, loc);
-        diags.push_back(diag);
-        set_messages_and_send_to_client(diags);
+        lsp::diagnostic diag;
+        diag.message               = e.msg;
+        diag.range.start.line      = e.mark.line-1;
+        diag.range.start.character = e.mark.column-1;
+        diag.range.end.line        = e.mark.line-1;
+        diag.range.end.character   = e.mark.column-1;
+        client_->send_persistent_diagnostic(path_to_yaml, diag);
         LOG_S(ERROR) << "ProjectManager: error loading " << path_to_yaml
                      << " ver" << loaded_version_ << ": " << e.msg;
         return false;
     }
     catch (const std::exception& e)
     {
-        common::location loc(path_to_yaml.string(), 1, 1);
-        common::diagnostic diag(e.what(), loc);
-        diags.push_back(diag);
-        set_messages_and_send_to_client(diags);
+        lsp::diagnostic diag;
+        diag.message               = e.what();
+        diag.range.start.line      = 0;
+        diag.range.start.character = 0;
+        diag.range.end.line        = 0;
+        diag.range.end.character   = 0;
+        client_->send_persistent_diagnostic(path_to_yaml, diag);
         LOG_S(ERROR) << "ProjectManager: error loading " << path_to_yaml
                      << " ver" << loaded_version_ << ": " << e.what();
         return false;
@@ -301,7 +286,7 @@ bool things::project::
     current_sv_library_manager_.reset();
     current_sv_library_manager_ = temp_svm;
 
-    set_messages_and_send_to_client(diags);
+    client_->clear_persistent_diagnostic(path_to_yaml);
     return true;
 }
 
@@ -331,11 +316,11 @@ things::explorer::worker::worker(int v, int i,
                                  std::shared_ptr<vhdl::library_manager> m,
                                  std::shared_ptr<sv::library_manager> svm,
                                  progress* p, std::function<void()> u,
-                                 std::function<void(common::diagnostic)> c,
+                                 std::string y, things::client* c ,
                                  std::string w)
     : busy_(false), quit_(false), done_(false), specs(s), manager(m),
       sv_manager(svm), filelist(f), progress_(p), send_progress_update(u),
-      add_message_and_send_to_client(c), workspace_folder(w), version(v), id(i)
+      client_(c), workspace_folder(w), version(v), id(i), path_to_yaml(y)
 {
     header = fmt::format("Worker{}.{}: ", version, i);
 }
@@ -354,19 +339,25 @@ int things::explorer::worker::explore_spec(things::config::file_specification* s
         std::filesystem::path folder(directory);
         if (!std::filesystem::exists(folder))
         {
-            common::location loc("", spec->line, spec->column);
-            common::diagnostic diag("{} does not exist", loc);
-            diag << directory;
-            add_message_and_send_to_client(diag);
+            lsp::diagnostic diag;
+            diag.message = fmt::format("{} does not exist", directory);
+            diag.range.start.line      = spec->line-1;
+            diag.range.start.character = spec->column-1;
+            diag.range.end.line        = spec->line-1;
+            diag.range.end.character   = spec->column-1;
+            client_->send_persistent_diagnostic(path_to_yaml, diag);
             return found;
         }
 
         if (!std::filesystem::is_directory(folder))
         {
-            common::location loc("", spec->line, spec->column);
-            common::diagnostic diag("{} is not a folder", loc);
-            diag << directory;
-            add_message_and_send_to_client(diag);
+            lsp::diagnostic diag;
+            diag.message = fmt::format("{} is not a folder", directory);
+            diag.range.start.line      = spec->line-1;
+            diag.range.start.character = spec->column-1;
+            diag.range.end.line        = spec->line-1;
+            diag.range.end.character   = spec->column-1;
+            client_->send_persistent_diagnostic(path_to_yaml, diag);
             return found;
         }
 
@@ -464,19 +455,25 @@ int things::explorer::worker::explore_spec(things::config::file_specification* s
         std::filesystem::path file(entry);
         if (!std::filesystem::exists(file))
         {
-            common::location loc("", spec->line, spec->column);
-            common::diagnostic diag("{} does not exist", loc);
-            diag << entry;
-            add_message_and_send_to_client(diag);
+            lsp::diagnostic diag;
+            diag.message = fmt::format("{} does not exist", entry);
+            diag.range.start.line      = spec->line-1;
+            diag.range.start.character = spec->column-1;
+            diag.range.end.line        = spec->line-1;
+            diag.range.end.character   = spec->column-1;
+            client_->send_persistent_diagnostic(path_to_yaml, diag);
             return found;
         }
 
         if (!std::filesystem::is_regular_file(file))
         {
-            common::location loc("", spec->line, spec->column);
-            common::diagnostic diag("{} is not a file", loc);
-            diag << entry;
-            add_message_and_send_to_client(diag);
+            lsp::diagnostic diag;
+            diag.message = fmt::format("{} is not a file", entry);
+            diag.range.start.line      = spec->line-1;
+            diag.range.start.character = spec->column-1;
+            diag.range.end.line        = spec->line-1;
+            diag.range.end.character   = spec->column-1;
+            client_->send_persistent_diagnostic(path_to_yaml, diag);
             return found;
         }
 
@@ -597,11 +594,11 @@ bool things::explorer::worker::completed()
 things::explorer::explorer(int v, std::shared_ptr<things::filelist> f,
                            std::shared_ptr<vhdl::library_manager> m,
                            std::shared_ptr<sv::library_manager> svm,
-                           std::function<void(common::diagnostic)> cb,
+                           std::string y,
                            things::language* s, things::client* c,
                            std::string w)
     : filelist(f), manager(m), sv_manager(svm),
-      add_message_and_send_to_client(cb), server_(s), client_(c),
+      path_to_yaml(y), server_(s), client_(c),
       workspace_folder(w), version_(v)
 {
     header = fmt::format("Explorer{}: ", version_);
@@ -649,7 +646,7 @@ void things::explorer::start(things::config::file_specifications_ptr& q)
         auto w = std::make_unique<worker>(
             version_, i, e, filelist, manager, sv_manager, &progress_,
             std::bind(&things::explorer::send_progress_update, this),
-            add_message_and_send_to_client, workspace_folder);
+            path_to_yaml, client_, workspace_folder);
 
         std::thread thread(std::bind(&worker::work, w.get()));
         workers.emplace_back(std::move(w));

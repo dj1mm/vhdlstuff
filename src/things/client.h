@@ -40,12 +40,17 @@ class client: public lsp::client
     void log_message(std::string);
     void send_diagnostics(std::string, std::vector<common::diagnostic>);
     void send_diagnostics(std::string, std::vector<lsp::diagnostic>);
+    void send_persistent_diagnostic(std::string, lsp::diagnostic&);
+    void clear_persistent_diagnostic(std::string);
 
     std::optional<workdone_progress_bar> create_workdone_progress(std::string);
 
     private:
 
     std::atomic_bool workdone_progress_bar_visible;
+
+    std::mutex persistent_diagnostics_mtx;
+    std::map<std::string, std::vector<lsp::diagnostic>> persistent_diagnostics;
 
     friend workdone_progress_bar;
     

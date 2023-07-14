@@ -124,9 +124,6 @@ class project
     // content from a yaml file AND background exploration is done.
     bool libraries_have_been_populated();
 
-    void set_messages_and_send_to_client(std::vector<common::diagnostic>&);
-    void add_message_and_send_to_client(common::diagnostic);
-
     // get the current library manager
     std::shared_ptr<vhdl::library_manager> get_current_library_manager();
     std::shared_ptr<sv::library_manager> get_current_sv_library_manager();
@@ -149,9 +146,6 @@ class project
     // thread ever uses this. Ditto for the explorer.
     std::unique_ptr<things::explorer> current_background_explorer_;
     std::shared_ptr<filelist> current_filelist_;
-
-    std::mutex cb_mtx_;
-    std::vector<common::diagnostic> diagnostics_;
 
     std::mutex clm_mtx_;
     std::shared_ptr<vhdl::library_manager> current_library_manager_;
@@ -221,7 +215,7 @@ class explorer
                std::shared_ptr<vhdl::library_manager>,
                std::shared_ptr<sv::library_manager>,
                progress*, std::function<void()>,
-               std::function<void(common::diagnostic)>, std::string);
+               std::string, client*, std::string);
 
         // worker is not movable not copyable
         worker(const worker&) = delete;
@@ -262,7 +256,8 @@ class explorer
 
         progress* progress_;
         std::function<void()> send_progress_update;
-        std::function<void(common::diagnostic)> add_message_and_send_to_client;
+        std::string path_to_yaml;
+        client* client_;
         std::string workspace_folder;
 
     };
@@ -272,7 +267,7 @@ class explorer
     explorer(int, std::shared_ptr<things::filelist>,
              std::shared_ptr<vhdl::library_manager>,
              std::shared_ptr<sv::library_manager>,
-             std::function<void(common::diagnostic)>, things::language*,
+             std::string, things::language*,
              things::client*, std::string);
     explorer(const explorer&) = delete;
     explorer(explorer&&) = delete;
@@ -302,7 +297,7 @@ class explorer
     std::shared_ptr<things::filelist> filelist;
     std::shared_ptr<vhdl::library_manager> manager;
     std::shared_ptr<sv::library_manager> sv_manager;
-    std::function<void(common::diagnostic)> add_message_and_send_to_client;
+    std::string path_to_yaml;
     progress progress_;
     things::language* server_;
     things::client* client_;
