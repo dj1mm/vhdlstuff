@@ -173,7 +173,7 @@ class sv_working_file : public working_file
     std::vector<std::string> work_libraries_;
 
     void run_with_sv_ast(std::function<void(std::shared_ptr<sv::ast>)>);
-    void make_sure_this_is_latest_project_version();
+    void make_sure_this_is_latest_project_version(bool=true);
     void send_diagnostics_back_to_client_if_needed();
 };
 

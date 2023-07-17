@@ -578,7 +578,7 @@ void things::sv_working_file::update()
             return;
         }
 
-        make_sure_this_is_latest_project_version();
+        make_sure_this_is_latest_project_version(); // because of slang, we always need to destroy and rebuild the sv::ast
 
         if (list_of_potentially_referenced_files_now_invalid.size())
         {
@@ -652,14 +652,14 @@ void things::sv_working_file::run_with_sv_ast(
     return add_task("run_with_ast", std::move(run_that));
 }
 
-void things::sv_working_file::make_sure_this_is_latest_project_version()
+void things::sv_working_file::make_sure_this_is_latest_project_version(bool force)
 {
     auto libmgr = project_->get_current_sv_library_manager();
 
     auto new_project_version = project_->get_loaded_version();
     auto new_library_loaded_state = project_->libraries_have_been_populated();
     if (!ast ||
-        true || // because of slang, we always need to recompute the sv::ast
+        force ||
         current_project_version_ != new_project_version ||
         library_fully_loaded_ != new_library_loaded_state)
     {
