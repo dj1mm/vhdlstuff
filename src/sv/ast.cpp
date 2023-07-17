@@ -126,6 +126,9 @@ bool sv::ast::update()
             if (kind == sv::library_cell_kind::invalid)
                 continue;
 
+            if (sm.isCached(file))
+                continue;
+
             auto buffer = sm.readSource(file);
             if (!buffer)
             {
