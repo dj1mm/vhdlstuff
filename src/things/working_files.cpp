@@ -494,7 +494,7 @@ namespace things
 class sv_diagnostic_client : public slang::DiagnosticClient
 {
     std::vector<lsp::diagnostic> diags_;
-    lsp::diagnostic* previous_diag_;
+    std::vector<lsp::diagnostic>* previous_diags_;
 
     slang::SourceManager* sm_;
 
@@ -554,13 +554,24 @@ void things::sv_diagnostic_client::report_diagnostic_(const slang::ReportedDiagn
     case slang::DiagnosticSeverity::Fatal:   diag.severity = lsp::diagnostic_severity::error;       break;
     default:                                 diag.severity = lsp::diagnostic_severity::information; break;
     }
-    previous_diag_ = &diag;
+    previous_diags_ = &diags_;
     diags_.push_back(diag);
 }
 
 void things::sv_diagnostic_client::report_related_information_(const slang::ReportedDiagnostic& diagnostic)
 {
-    // TODO diagnostic related information
+    if (!previous_diags_)
+        return;
+
+    lsp::diagnostic_related_information diag;
+    diag.message = diagnostic.formattedMessage;
+
+    diag.location.uri.set_path(std::string(sm_->getFileName(diagnostic.location)));
+    diag.location.range.start.line = sm_->getLineNumber(diagnostic.location) - 1;
+    diag.location.range.start.character = sm_->getColumnNumber(diagnostic.location) - 1;
+    diag.location.range.end.line = sm_->getLineNumber(diagnostic.location) - 1;
+    diag.location.range.end.character = sm_->getColumnNumber(diagnostic.location) - 1;
+    previous_diags_->back().related_information.push_back(diag);
 }
 
 things::sv_working_file::sv_working_file(std::string file,
