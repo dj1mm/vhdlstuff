@@ -157,6 +157,16 @@ void sv::ast::invalidate_main_file()
     invalidated_ = true;
 }
 
+std::shared_ptr<slang::syntax::SyntaxTree> sv::ast::get_main_file()
+{
+    return main_file;
+}
+
+slang::SourceManager& sv::ast::get_source_manager()
+{
+    return sm;
+}
+
 const std::tuple<slang::Diagnostics, slang::Diagnostics>
 sv::ast::get_diagnostics()
 {

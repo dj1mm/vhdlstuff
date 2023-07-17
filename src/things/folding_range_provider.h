@@ -4,6 +4,11 @@
 
 #include "vhdl_syntax.h"
 
+#include "slang/syntax/SyntaxVisitor.h"
+#include "slang/syntax/AllSyntax.h"
+#include "slang/text/SourceManager.h"
+#include "slang/text/SourceLocation.h"
+
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 
@@ -59,6 +64,42 @@ class vhdl_folding_range_provider: public vhdl::syntax::visitor
 
     private:
     rapidjson::Writer<rapidjson::StringBuffer>* w;
+};
+
+class sv_folding_range_provider
+    : public slang::syntax::SyntaxVisitor<sv_folding_range_provider>
+{
+    rapidjson::Writer<rapidjson::StringBuffer>* w;
+    slang::SourceManager& sm;
+
+    public:
+    sv_folding_range_provider(slang::SourceManager&,
+                              rapidjson::Writer<rapidjson::StringBuffer>*);
+
+    void foldable(const slang::parsing::Token&, const slang::parsing::Token&);
+    void foldable(const slang::SourceLocation, const slang::SourceLocation);
+
+    void handle(const slang::syntax::ModuleDeclarationSyntax&);
+    void handle(const slang::syntax::ParameterPortListSyntax&);
+    void handle(const slang::syntax::NonAnsiPortListSyntax&);
+    void handle(const slang::syntax::AnsiPortListSyntax&);
+    void handle(const slang::syntax::ProceduralBlockSyntax&);
+    void handle(const slang::syntax::ConditionalStatementSyntax&);
+    void handle(const slang::syntax::IfGenerateSyntax&);
+    void handle(const slang::syntax::ElseClauseSyntax&);
+    void handle(const slang::syntax::ContinuousAssignSyntax&);
+    void handle(const slang::syntax::CaseStatementSyntax&);
+    void handle(const slang::syntax::StandardCaseItemSyntax&);
+    void handle(const slang::syntax::DefaultCaseItemSyntax&);
+    void handle(const slang::syntax::PatternCaseItemSyntax&);
+    void handle(const slang::syntax::LoopStatementSyntax&);
+    void handle(const slang::syntax::ForLoopStatementSyntax&);
+    void handle(const slang::syntax::ForeachLoopStatementSyntax&);
+    void handle(const slang::syntax::ParameterValueAssignmentSyntax&);
+    void handle(const slang::syntax::HierarchicalInstanceSyntax&);
+    void handle(const slang::syntax::ClassDeclarationSyntax&);
+    void handle(const slang::syntax::FunctionDeclarationSyntax&);
+    void handle(const slang::syntax::ClassMethodDeclarationSyntax&);
 };
 
 }

@@ -46,6 +46,8 @@ class ast
     // found
     std::shared_ptr<slang::syntax::SyntaxTree> get_main_file();
 
+    slang::SourceManager& get_source_manager();
+
     // this function will return quickly
     // return the current parse errors and semantic errors.
     //

@@ -602,8 +602,21 @@ void things::sv_working_file::folding_ranges(
     std::shared_ptr<lsp::incoming_request> r)
 {
     auto calculate_folding_ranges = [r](std::shared_ptr<sv::ast> ast) {
+        if (!ast || !ast->get_main_file()) {
             r->reply(json::string("[]"));
             return;
+        }
+
+        rapidjson::StringBuffer s;
+        rapidjson::Writer<rapidjson::StringBuffer> w(s);
+
+        w.StartArray();
+        sv_folding_range_provider d(ast->get_source_manager(), &w);
+        ast->get_main_file()->root().visit(d);
+        w.EndArray();
+
+        json::string json = s.GetString();
+        r->reply(json);
     };
     run_with_sv_ast(calculate_folding_ranges);
 }
@@ -645,8 +658,20 @@ void things::sv_working_file::run_with_sv_ast(
     std::function<void(std::shared_ptr<sv::ast>)> callback)
 {
     auto run_that = [this, that = std::move(callback)](bool is_superseded) {
+        if (is_superseded)
+        {
             that(nullptr);
             return;
+        }
+
+        make_sure_this_is_latest_project_version(false);
+
+        auto was_already_uptodate = ast->update();
+
+        if (!was_already_uptodate)
+            send_diagnostics_back_to_client_if_needed();
+
+        that(ast);
     };
 
     return add_task("run_with_ast", std::move(run_that));
