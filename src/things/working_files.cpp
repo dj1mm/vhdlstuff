@@ -493,8 +493,8 @@ namespace things
 
 class sv_diagnostic_client : public slang::DiagnosticClient
 {
-    std::vector<lsp::diagnostic> diags_;
-    std::vector<lsp::diagnostic>* previous_diags_;
+    std::unordered_map<std::string, std::vector<lsp::diagnostic>> file_to_diagnostics;
+    std::vector<lsp::diagnostic>* previous_diagnostics;
 
     slang::SourceManager* sm_;
 
@@ -502,7 +502,8 @@ class sv_diagnostic_client : public slang::DiagnosticClient
     sv_diagnostic_client(slang::SourceManager*);
     virtual void report(const slang::ReportedDiagnostic&);
 
-    std::vector<lsp::diagnostic>& get_diagnostics();
+    std::unordered_map<std::string, std::vector<lsp::diagnostic>>&
+    get_diagnostics();
 
     private:
     void report_diagnostic_(const slang::ReportedDiagnostic&);
@@ -519,6 +520,9 @@ things::sv_diagnostic_client::sv_diagnostic_client(slang::SourceManager* sm)
 
 void things::sv_diagnostic_client::report(const slang::ReportedDiagnostic& diag)
 {
+    if (diag.location == slang::SourceLocation::NoLocation)
+        return;
+
     if (diag.originalDiagnostic.code.getSubsystem() != slang::DiagSubsystem::General ||
         diag.originalDiagnostic.code.getCode() < slang::diag::NoteAssignedHere.getCode())
     {
@@ -530,9 +534,10 @@ void things::sv_diagnostic_client::report(const slang::ReportedDiagnostic& diag)
     }
 }
 
-std::vector<lsp::diagnostic>& things::sv_diagnostic_client::get_diagnostics()
+std::unordered_map<std::string, std::vector<lsp::diagnostic>>&
+things::sv_diagnostic_client::get_diagnostics()
 {
-    return diags_;
+    return file_to_diagnostics;
 }
 
 void things::sv_diagnostic_client::report_diagnostic_(const slang::ReportedDiagnostic& diagnostic)
@@ -541,10 +546,13 @@ void things::sv_diagnostic_client::report_diagnostic_(const slang::ReportedDiagn
     diag.source = "slang";
     diag.message = diagnostic.formattedMessage;
 
-    diag.range.start.line = sm_->getLineNumber(diagnostic.location) - 1;
+    auto path = sm_->getFullPath(diagnostic.location.buffer());
+    assert(!path.empty());
+
+    diag.range.start.line      = sm_->getLineNumber(diagnostic.location) - 1;
+    diag.range.end.line        = sm_->getLineNumber(diagnostic.location) - 1;
     diag.range.start.character = sm_->getColumnNumber(diagnostic.location) - 1;
-    diag.range.end.line = sm_->getLineNumber(diagnostic.location) - 1;
-    diag.range.end.character = sm_->getColumnNumber(diagnostic.location) - 1;
+    diag.range.end.character   = sm_->getColumnNumber(diagnostic.location) - 1;
 
     switch (diagnostic.severity) {
     case slang::DiagnosticSeverity::Ignored: return;
@@ -554,24 +562,30 @@ void things::sv_diagnostic_client::report_diagnostic_(const slang::ReportedDiagn
     case slang::DiagnosticSeverity::Fatal:   diag.severity = lsp::diagnostic_severity::error;       break;
     default:                                 diag.severity = lsp::diagnostic_severity::information; break;
     }
-    previous_diags_ = &diags_;
-    diags_.push_back(diag);
+
+    auto& diagnostics = file_to_diagnostics[path.string()];
+    previous_diagnostics = &diagnostics;
+    diagnostics.push_back(diag);
 }
 
 void things::sv_diagnostic_client::report_related_information_(const slang::ReportedDiagnostic& diagnostic)
 {
-    if (!previous_diags_)
+    if (!previous_diagnostics)
         return;
 
     lsp::diagnostic_related_information diag;
     diag.message = diagnostic.formattedMessage;
 
-    diag.location.uri.set_path(std::string(sm_->getFileName(diagnostic.location)));
-    diag.location.range.start.line = sm_->getLineNumber(diagnostic.location) - 1;
+    auto path = sm_->getFullPath(diagnostic.location.buffer());
+    assert(!path.empty());
+
+
+    diag.location.uri.set_path(path.string());
+    diag.location.range.start.line      = sm_->getLineNumber(diagnostic.location) - 1;
+    diag.location.range.end.line        = sm_->getLineNumber(diagnostic.location) - 1;
     diag.location.range.start.character = sm_->getColumnNumber(diagnostic.location) - 1;
-    diag.location.range.end.line = sm_->getLineNumber(diagnostic.location) - 1;
-    diag.location.range.end.character = sm_->getColumnNumber(diagnostic.location) - 1;
-    previous_diags_->back().related_information.push_back(diag);
+    diag.location.range.end.character   = sm_->getColumnNumber(diagnostic.location) - 1;
+    previous_diagnostics->back().related_information.push_back(diag);
 }
 
 things::sv_working_file::sv_working_file(std::string file,
@@ -729,7 +743,7 @@ void things::sv_working_file::send_diagnostics_back_to_client_if_needed()
             de.issue(diagnostic);
         }
 
-        client_->send_diagnostics(file_, dc->get_diagnostics());
+        client_->send_diagnostics(file_, dc->get_diagnostics()[file_]);
     }
 }
 
