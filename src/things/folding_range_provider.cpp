@@ -332,6 +332,18 @@ void things::sv_folding_range_provider::foldable(
     w->EndObject();
 }
 
+void things::sv_folding_range_provider::handle(const slang::syntax::StructUnionTypeSyntax& syntax)
+{
+    foldable(syntax.openBrace, syntax.closeBrace);
+    visitDefault(syntax);
+}
+
+void things::sv_folding_range_provider::handle(const slang::syntax::EnumTypeSyntax& syntax)
+{
+    foldable(syntax.openBrace, syntax.closeBrace);
+    visitDefault(syntax);
+}
+
 void things::sv_folding_range_provider::handle(const slang::syntax::ModuleDeclarationSyntax& syntax)
 {
     foldable(syntax.header->semi, syntax.endmodule);
@@ -366,6 +378,12 @@ void things::sv_folding_range_provider::handle(const slang::syntax::ProceduralBl
 void things::sv_folding_range_provider::handle(const slang::syntax::ConditionalStatementSyntax& syntax)
 {
     foldable(syntax.ifKeyword, syntax.statement->getLastToken());
+    visitDefault(syntax);
+}
+
+void things::sv_folding_range_provider::handle(const slang::syntax::LoopGenerateSyntax& syntax)
+{
+    foldable(syntax.keyword, syntax.block->getLastToken());
     visitDefault(syntax);
 }
 

@@ -79,12 +79,15 @@ class sv_folding_range_provider
     void foldable(const slang::parsing::Token&, const slang::parsing::Token&);
     void foldable(const slang::SourceLocation, const slang::SourceLocation);
 
+    void handle(const slang::syntax::StructUnionTypeSyntax&);
+    void handle(const slang::syntax::EnumTypeSyntax&);
     void handle(const slang::syntax::ModuleDeclarationSyntax&);
     void handle(const slang::syntax::ParameterPortListSyntax&);
     void handle(const slang::syntax::NonAnsiPortListSyntax&);
     void handle(const slang::syntax::AnsiPortListSyntax&);
     void handle(const slang::syntax::ProceduralBlockSyntax&);
     void handle(const slang::syntax::ConditionalStatementSyntax&);
+    void handle(const slang::syntax::LoopGenerateSyntax&);
     void handle(const slang::syntax::IfGenerateSyntax&);
     void handle(const slang::syntax::ElseClauseSyntax&);
     void handle(const slang::syntax::ContinuousAssignSyntax&);
