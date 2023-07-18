@@ -20,7 +20,7 @@
 #include "common/loguru.h"
 #include "slang/text/SourceManager.h"
 #include "sv/library_manager.h"
-#include "vhdl/fast_parser.h"
+#include "common/stringtable.h"
 #include "vhdl/library_manager.h"
 #include "yaml-cpp/yaml.h"
 

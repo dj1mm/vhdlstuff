@@ -316,3 +316,8 @@ bool vhdl::ast::is_uptodate()
 {
     return main_file != nullptr;
 }
+
+bool vhdl::is_a_vhdl_file(std::string& ext)
+{
+    return ext == ".vhd" || ext == ".vhdl";
+}

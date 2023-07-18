@@ -10,7 +10,10 @@
 #include "slang/diagnostics/Diagnostics.h"
 #include "slang/parsing/Preprocessor.h"
 #include "slang/util/BumpAllocator.h"
+#include "sv/ast.h"
 #include "sv/fast_parser.h"
+#include "vhdl/ast.h"
+#include "vhdl/fast_parser.h"
 
 bool things::config::file_spec::is_path() const
 {
@@ -437,10 +440,8 @@ int things::explorer::worker::explore_spec(things::config::file_spec* spec)
                 continue;
             }
 
-            auto is_vhdl_file = file.extension() == ".vhd" || file.extension() == ".vhdl";
-            auto is_sv_file = file.extension() == ".sv";
-
-            if (is_vhdl_file) {
+            auto ext = file.extension().string();
+            if (vhdl::is_a_vhdl_file(ext)) {
                 std::ifstream content(file);
                 if (!content.good())
                 {
@@ -464,7 +465,7 @@ int things::explorer::worker::explore_spec(things::config::file_spec* spec)
                 ++found;
 
                 filelist->add_entry(file.string(), spec);
-            } else if (is_sv_file) {
+            } else if (sv::is_a_sv_file(ext)) {
                 sv::fast_parser fast(&sm, file);
                 auto entries = fast.parse();
 

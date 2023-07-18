@@ -103,6 +103,8 @@ class ast: public std::enable_shared_from_this<vhdl::ast>
     bool invalidated_;
 };
 
+bool is_a_vhdl_file(std::string&);
+
 }
 
 #endif

@@ -143,15 +143,13 @@ bool things::working_files::update(std::string file)
         std::filesystem::path path(file);
         auto ext = path.extension().string();
 
-        auto is_a_sv_file = (ext == ".sv");
-        auto is_a_vhdl_file = (ext == ".vhd" || ext == ".vhdl");
-        assert(is_a_sv_file || is_a_vhdl_file);
-
         std::shared_ptr<working_file> wf;
-        if (is_a_sv_file)
+        if (sv::is_a_sv_file(ext))
             wf = std::make_shared<sv_working_file>(file, client_, &server_->project);
-        else
+        else if (vhdl::is_a_vhdl_file(ext))
             wf = std::make_shared<vhdl_working_file>(file, client_, &server_->project);
+        else
+            assert(sv::is_a_sv_file(ext) || vhdl::is_a_vhdl_file(ext));
 
         // if we want to run_everything_on_the_main_thread, simply create a
         // working_file object, and simply call its update() function.

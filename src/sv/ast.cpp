@@ -173,3 +173,9 @@ sv::ast::get_diagnostics()
     return std::make_tuple(compilation.getParseDiagnostics(),
                            compilation.getSemanticDiagnostics());
 }
+
+bool sv::is_a_sv_file(std::string& ext)
+{
+    return ext == ".sv" || ext == ".svh";
+}
+

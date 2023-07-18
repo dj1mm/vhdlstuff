@@ -79,6 +79,8 @@ class ast
     bool invalidated_;
 };
 
+bool is_a_sv_file(std::string&);
+
 };
 
 #endif
