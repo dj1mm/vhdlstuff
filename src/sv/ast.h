@@ -15,7 +15,8 @@ namespace sv {
 class ast
 {
     public:
-    ast(std::string, std::shared_ptr<sv::library_manager>, std::string);
+    ast(std::string, std::shared_ptr<sv::library_manager>, std::string,
+        std::vector<std::string>&);
     ast(const ast&) = delete;
     ast(ast&&) = default;
     ast& operator=(const ast&) = delete;
@@ -67,6 +68,7 @@ class ast
 
     std::string filename;
     std::string worklibrary;
+    std::vector<std::string> incdirs;
 
     std::shared_ptr<slang::syntax::SyntaxTree> main_file;
     std::shared_ptr<sv::library_manager> library_manager;

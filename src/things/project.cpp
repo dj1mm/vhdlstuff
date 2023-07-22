@@ -296,8 +296,8 @@ bool things::project::
 std::vector<std::string> things::project::get_libraries_this_file_is_part_of(
     std::string& name)
 {
-    // I dont current filelist needs to be mutexed because this function is
-    // only ever called in the main thread
+    // I dont think current filelist needs to be mutexed because this function
+    // is only ever called in the main thread
     auto entry = current_filelist_->get_entry(name);
     if (!entry)
         return {};
@@ -311,6 +311,21 @@ std::vector<std::string> things::project::get_libraries_this_file_is_part_of(
             break;
     }
     return libs;
+}
+
+std::vector<std::string> things::project::get_incdirs_this_file_needs(
+    std::string& name)
+{
+    // I dont think current filelist needs to be mutexed because this function
+    // is only ever called in the main thread
+    auto entry = current_filelist_->get_entry(name);
+    if (!entry)
+        return {};
+
+    std::vector<std::string> incdirs;
+    for (auto& folder: entry->spec->library->incdirs)
+        incdirs.push_back(folder.path);
+    return incdirs;
 }
 
 things::compass::compass(int total, std::function<void()> callback,

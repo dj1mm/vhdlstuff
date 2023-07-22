@@ -15,10 +15,12 @@
 #include "slang/util/BumpAllocator.h"
 
 sv::ast::ast(std::string f, std::shared_ptr<sv::library_manager> m,
-               std::string w)
-    : filename(f), library_manager(m), worklibrary(w), invalidated_(true)
+               std::string w, std::vector<std::string>& i)
+    : filename(f), library_manager(m), worklibrary(w), invalidated_(true),
+      incdirs(i)
 {
-
+    for (auto& incdir: incdirs)
+        sm.addUserDirectory(incdir);
 }
 
 bool sv::ast::update()

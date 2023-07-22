@@ -171,6 +171,7 @@ class sv_working_file : public working_file
     private:
     std::shared_ptr<sv::ast> ast;
     std::vector<std::string> work_libraries_;
+    std::vector<std::string> incdirs_;
 
     void run_with_sv_ast(std::function<void(std::shared_ptr<sv::ast>)>);
     void make_sure_this_is_latest_project_version(bool=true);

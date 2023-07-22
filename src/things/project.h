@@ -138,6 +138,9 @@ class project
     // get the list of libraries a file is currently part of
     std::vector<std::string> get_libraries_this_file_is_part_of(std::string&);
 
+    // get the list of include directories needed for this file
+    std::vector<std::string> get_incdirs_this_file_needs(std::string&);
+
     private:
     std::filesystem::path project_folder_;
 

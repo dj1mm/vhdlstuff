@@ -727,10 +727,11 @@ void things::sv_working_file::make_sure_this_is_latest_project_version(bool forc
         current_project_version_ = new_project_version;
         library_fully_loaded_ = new_library_loaded_state;
         work_libraries_ = project_->get_libraries_this_file_is_part_of(file_);
+        incdirs_ = project_->get_incdirs_this_file_needs(file_);
         std::optional<std::string> work;
         if (work_libraries_.size() != 0)
             work = work_libraries_[0];
-        ast = std::make_shared<sv::ast>(file_, libmgr, work.value_or("work"));
+        ast = std::make_shared<sv::ast>(file_, libmgr, work.value_or("work"), incdirs_);
     }
 }
 

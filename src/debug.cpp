@@ -113,7 +113,8 @@ int debug_analysis(std::string file, std::filesystem::path path, std::string wor
     if (path.extension() == ".sv")
     {
         auto manager = std::make_shared<sv::library_manager>(cwd.string());
-        sv::ast tree(path.string(), manager, work);
+        std::vector<std::string> incdirs;
+        sv::ast tree(path.string(), manager, work, incdirs);
         tree.update();
         manager.reset();
         
