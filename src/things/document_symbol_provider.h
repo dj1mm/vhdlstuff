@@ -5,6 +5,12 @@
 #include "vhdl_syntax.h"
 #include "vhdl_nodes.h"
 
+#include "slang/syntax/SyntaxVisitor.h"
+#include "slang/syntax/AllSyntax.h"
+#include "slang/parsing/Token.h"
+#include "slang/text/SourceManager.h"
+#include "slang/text/SourceLocation.h"
+
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 
@@ -94,6 +100,57 @@ class vhdl_document_symbol_provider: public vhdl::syntax::visitor
     rapidjson::Writer<rapidjson::StringBuffer>* w;
 };
 
+class sv_document_symbol_provider
+    : public slang::syntax::SyntaxVisitor<sv_document_symbol_provider>
+{
+    rapidjson::Writer<rapidjson::StringBuffer>* w;
+    slang::SourceManager& sm;
+
+    public:
+    sv_document_symbol_provider(slang::SourceManager&,
+                                rapidjson::Writer<rapidjson::StringBuffer>*);
+
+    void symbol(const slang::parsing::Token&, const slang::SourceRange,
+                symbol_kind);
+    void symbol(const std::string, const slang::SourceRange,
+                const slang::SourceRange, symbol_kind);
+    void close_symbol();
+
+    void handle(const slang::syntax::DataDeclarationSyntax&);
+    void handle(const slang::syntax::TypedefDeclarationSyntax&);
+    void handle(const slang::syntax::ForwardTypedefDeclarationSyntax&);
+    void handle(const slang::syntax::ForwardInterfaceClassTypedefDeclarationSyntax&);
+    void handle(const slang::syntax::NetDeclarationSyntax&);
+    void handle(const slang::syntax::UserDefinedNetDeclarationSyntax&);
+    void handle(const slang::syntax::NetTypeDeclarationSyntax&);
+    void handle(const slang::syntax::PackageImportDeclarationSyntax&);
+    void handle(const slang::syntax::TypeParameterDeclarationSyntax&);
+    void handle(const slang::syntax::PortDeclarationSyntax&);
+    void handle(const slang::syntax::GenvarDeclarationSyntax&);
+    void handle(const slang::syntax::ForVariableDeclarationSyntax&);
+    void handle(const slang::syntax::ModuleDeclarationSyntax&);
+    void handle(const slang::syntax::TimeUnitsDeclarationSyntax&);
+    void handle(const slang::syntax::FunctionDeclarationSyntax&);
+    void handle(const slang::syntax::LetDeclarationSyntax&);
+    void handle(const slang::syntax::PropertyDeclarationSyntax&);
+    void handle(const slang::syntax::SequenceDeclarationSyntax&);
+    void handle(const slang::syntax::ClassDeclarationSyntax&);
+    void handle(const slang::syntax::ClassPropertyDeclarationSyntax&);
+    void handle(const slang::syntax::ClassMethodPrototypeSyntax&);
+    void handle(const slang::syntax::ModportDeclarationSyntax&);
+    void handle(const slang::syntax::ClockingDeclarationSyntax&);
+    void handle(const slang::syntax::UdpOutputPortDeclSyntax&);
+    void handle(const slang::syntax::UdpInputPortDeclSyntax&);
+    void handle(const slang::syntax::UdpDeclarationSyntax&);
+    void handle(const slang::syntax::SpecparamDeclarationSyntax&);
+    void handle(const slang::syntax::PathDeclarationSyntax&);
+    void handle(const slang::syntax::ConditionalPathDeclarationSyntax&);
+    void handle(const slang::syntax::IfNonePathDeclarationSyntax&);
+    void handle(const slang::syntax::PulseStyleDeclarationSyntax&);
+    void handle(const slang::syntax::ConstraintDeclarationSyntax&);
+    void handle(const slang::syntax::CovergroupDeclarationSyntax&);
+    void handle(const slang::syntax::ProceduralBlockSyntax&);
+};
 }
 
 #endif

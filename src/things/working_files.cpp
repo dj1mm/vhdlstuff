@@ -648,8 +648,21 @@ void things::sv_working_file::symbols(
     std::shared_ptr<lsp::incoming_request> r)
 {
     auto get_document_symbols = [r](std::shared_ptr<sv::ast> ast) {
+        if (!ast || !ast->get_main_file()) {
             r->reply(json::string("[]"));
             return;
+        }
+
+        rapidjson::StringBuffer s;
+        rapidjson::Writer<rapidjson::StringBuffer> w(s);
+
+        w.StartArray();
+        sv_document_symbol_provider d(ast->get_source_manager(), &w);
+        ast->get_main_file()->root().visit(d);
+        w.EndArray();
+    
+        json::string json = s.GetString();
+        r->reply(json);
     };
 
     run_with_sv_ast(get_document_symbols);

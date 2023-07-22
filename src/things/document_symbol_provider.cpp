@@ -568,8 +568,310 @@ bool things::vhdl_document_symbol_provider::visit(vhdl::syntax::context_item* c)
     return false;
 }
 
+things::sv_document_symbol_provider::sv_document_symbol_provider(
+    slang::SourceManager& sm, rapidjson::Writer<rapidjson::StringBuffer>* w)
+    : w(w), sm(sm)
+{
+}
 
+void things::sv_document_symbol_provider::symbol(
+    const slang::parsing::Token& name, const slang::SourceRange range,
+    symbol_kind kind)
+{
+    auto start = range.start();
+    auto end = range.end();
+    if (range.start() == slang::SourceLocation::NoLocation ||
+        range.end() == slang::SourceLocation::NoLocation ||
+        name.location() == slang::SourceLocation::NoLocation)
+        return;
 
+    w->StartObject();
+    w->Key("name");
+    w->String(std::string(name.valueText()));
+    w->Key("kind");
+    w->Int(static_cast<int>(kind));
+    w->Key("range");
+    w->StartObject();
+    w->Key("start");
+    w->StartObject();
+    w->Key("line");
+    w->Int(sm.getLineNumber(range.start()) - 1);
+    w->Key("character");
+    w->Int(sm.getColumnNumber(range.start()) - 1);
+    w->EndObject();
+    w->Key("end");
+    w->StartObject();
+    w->Key("line");
+    w->Int(sm.getLineNumber(range.end()) - 1);
+    w->Key("character");
+    w->Int(sm.getColumnNumber(range.end()) - 1);
+    w->EndObject();
+    w->EndObject();
+    w->Key("selectionRange");
+    w->StartObject();
+    w->Key("start");
+    w->StartObject();
+    w->Key("line");
+    w->Int(sm.getLineNumber(name.range().start()) - 1);
+    w->Key("character");
+    w->Int(sm.getColumnNumber(name.range().start()) - 1);
+    w->EndObject();
+    w->Key("end");
+    w->StartObject();
+    w->Key("line");
+    w->Int(sm.getLineNumber(name.range().end()) - 1);
+    w->Key("character");
+    w->Int(sm.getColumnNumber(name.range().end()) - 1);
+    w->EndObject();
+    w->EndObject();
+    w->Key("children");
+    w->StartArray();
+    // fill in the blanks
+}
 
+void things::sv_document_symbol_provider::close_symbol()
+{
+    w->EndArray();
+    w->EndObject();
+}
 
+void things::sv_document_symbol_provider::handle(const slang::syntax::DataDeclarationSyntax& syntax)
+{
+    for (auto declarator : syntax.declarators)
+    {
+        symbol(declarator->name, syntax.sourceRange(), symbol_kind::variable);
+        close_symbol();
+    }
+}
 
+void things::sv_document_symbol_provider::handle(const slang::syntax::TypedefDeclarationSyntax& syntax)
+{
+    symbol(syntax.name, syntax.sourceRange(), symbol_kind::typeparameter);
+    visitDefault(syntax);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ForwardTypedefDeclarationSyntax& syntax)
+{
+    symbol(syntax.name, syntax.sourceRange(), symbol_kind::typeparameter);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ForwardInterfaceClassTypedefDeclarationSyntax& syntax)
+{
+    symbol(syntax.name, syntax.sourceRange(), symbol_kind::typeparameter);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::NetDeclarationSyntax& syntax)
+{
+    for (auto declarator : syntax.declarators)
+    {
+        symbol(declarator->name, syntax.sourceRange(), symbol_kind::variable);
+        close_symbol();
+    }
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::UserDefinedNetDeclarationSyntax& syntax)
+{
+    for (auto declarator : syntax.declarators)
+    {
+        symbol(declarator->name, syntax.sourceRange(), symbol_kind::variable);
+        close_symbol();
+    }
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::NetTypeDeclarationSyntax& syntax)
+{
+    symbol(syntax.name, syntax.sourceRange(), symbol_kind::variable);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::PackageImportDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::TypeParameterDeclarationSyntax& syntax)
+{
+    for (auto declarator : syntax.declarators)
+    {
+        symbol(declarator->name, syntax.sourceRange(),
+               symbol_kind::typeparameter);
+        close_symbol();
+    }
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::PortDeclarationSyntax& syntax)
+{
+    for (auto declarator : syntax.declarators)
+    {
+        symbol(declarator->name, syntax.sourceRange(), symbol_kind::variable);
+        close_symbol();
+    }
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::GenvarDeclarationSyntax& syntax)
+{
+    for (auto declarator : syntax.identifiers)
+    {
+        symbol(declarator->identifier, syntax.sourceRange(),
+               symbol_kind::variable);
+        close_symbol();
+    }
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ForVariableDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ModuleDeclarationSyntax& syntax)
+{
+    switch (syntax.kind)
+    {
+    case slang::syntax::SyntaxKind::ModuleDeclaration:
+        symbol(syntax.header->name, syntax.sourceRange(), symbol_kind::module);
+        break;
+    case slang::syntax::SyntaxKind::PackageDeclaration:
+        symbol(syntax.header->name, syntax.sourceRange(), symbol_kind::package);
+        break;
+    case slang::syntax::SyntaxKind::InterfaceDeclaration:
+        symbol(syntax.header->name, syntax.sourceRange(),
+               symbol_kind::interface);
+        break;
+    case slang::syntax::SyntaxKind::ProgramDeclaration:
+        symbol(syntax.header->name, syntax.sourceRange(), symbol_kind::ns);
+        break;
+    default:
+        break;
+    }
+    visitDefault(syntax);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::TimeUnitsDeclarationSyntax& syntax)
+{
+    symbol(syntax.time, syntax.sourceRange(), symbol_kind::variable);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::FunctionDeclarationSyntax& syntax)
+{
+    switch (syntax.kind)
+    {
+    case slang::syntax::SyntaxKind::FunctionDeclaration:
+        symbol(syntax.prototype->name->getLastToken(), syntax.sourceRange(),
+               symbol_kind::function);
+        break;
+    case slang::syntax::SyntaxKind::TaskDeclaration:
+        symbol(syntax.prototype->name->getLastToken(), syntax.sourceRange(),
+               symbol_kind::function);
+        break;
+    default:
+        break;
+    }
+    visitDefault(syntax);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::LetDeclarationSyntax& syntax)
+{
+    symbol(syntax.identifier, syntax.sourceRange(), symbol_kind::function);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::PropertyDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::SequenceDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ClassDeclarationSyntax& syntax)
+{
+    symbol(syntax.name, syntax.sourceRange(), symbol_kind::clazz);
+    visitDefault(syntax);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ClassPropertyDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ClassMethodPrototypeSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ModportDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ClockingDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::UdpOutputPortDeclSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::UdpInputPortDeclSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::UdpDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::SpecparamDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::PathDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ConditionalPathDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::IfNonePathDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::PulseStyleDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ConstraintDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::CovergroupDeclarationSyntax& syntax)
+{
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ProceduralBlockSyntax& syntax)
+{
+    switch (syntax.kind)
+    {
+    case slang::syntax::SyntaxKind::InitialBlock:
+        symbol(syntax.keyword, syntax.sourceRange(), symbol_kind::ns);
+        break;
+    case slang::syntax::SyntaxKind::FinalBlock:
+        symbol(syntax.keyword, syntax.sourceRange(), symbol_kind::ns);
+        break;
+    case slang::syntax::SyntaxKind::AlwaysBlock:
+        symbol(syntax.keyword, syntax.sourceRange(), symbol_kind::ns);
+        break;
+    case slang::syntax::SyntaxKind::AlwaysCombBlock:
+        symbol(syntax.keyword, syntax.sourceRange(), symbol_kind::ns);
+        break;
+    case slang::syntax::SyntaxKind::AlwaysFFBlock:
+        symbol(syntax.keyword, syntax.sourceRange(), symbol_kind::ns);
+        break;
+    case slang::syntax::SyntaxKind::AlwaysLatchBlock:
+        symbol(syntax.keyword, syntax.sourceRange(), symbol_kind::ns);
+        break;
+    }
+    close_symbol();
+}
