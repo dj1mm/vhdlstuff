@@ -691,6 +691,14 @@ void things::sv_document_symbol_provider::handle(const slang::syntax::PackageImp
 {
 }
 
+void things::sv_document_symbol_provider::handle(const slang::syntax::ParameterDeclarationSyntax& syntax)
+{
+    for (auto declarator: syntax.declarators) {
+        symbol(declarator->name, syntax.sourceRange(), symbol_kind::variable);
+        close_symbol();
+    }
+}
+
 void things::sv_document_symbol_provider::handle(const slang::syntax::TypeParameterDeclarationSyntax& syntax)
 {
     for (auto declarator : syntax.declarators)
@@ -708,6 +716,18 @@ void things::sv_document_symbol_provider::handle(const slang::syntax::PortDeclar
         symbol(declarator->name, syntax.sourceRange(), symbol_kind::variable);
         close_symbol();
     }
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ImplicitAnsiPortSyntax& syntax)
+{
+    symbol(syntax.declarator->name, syntax.sourceRange(), symbol_kind::variable);
+    close_symbol();
+}
+
+void things::sv_document_symbol_provider::handle(const slang::syntax::ExplicitAnsiPortSyntax& syntax)
+{
+    symbol(syntax.name, syntax.sourceRange(), symbol_kind::variable);
+    close_symbol();
 }
 
 void things::sv_document_symbol_provider::handle(const slang::syntax::GenvarDeclarationSyntax& syntax)

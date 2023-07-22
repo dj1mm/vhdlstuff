@@ -124,8 +124,11 @@ class sv_document_symbol_provider
     void handle(const slang::syntax::UserDefinedNetDeclarationSyntax&);
     void handle(const slang::syntax::NetTypeDeclarationSyntax&);
     void handle(const slang::syntax::PackageImportDeclarationSyntax&);
+    void handle(const slang::syntax::ParameterDeclarationSyntax&);
     void handle(const slang::syntax::TypeParameterDeclarationSyntax&);
     void handle(const slang::syntax::PortDeclarationSyntax&);
+    void handle(const slang::syntax::ImplicitAnsiPortSyntax& syntax);
+    void handle(const slang::syntax::ExplicitAnsiPortSyntax& syntax);
     void handle(const slang::syntax::GenvarDeclarationSyntax&);
     void handle(const slang::syntax::ForVariableDeclarationSyntax&);
     void handle(const slang::syntax::ModuleDeclarationSyntax&);
