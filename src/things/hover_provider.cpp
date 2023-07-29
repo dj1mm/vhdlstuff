@@ -818,7 +818,7 @@ bool things::sv_hover_provider(rapidjson::Writer<rapidjson::StringBuffer>* w,
 {
     for (auto candidate : compilation.getSyntaxTrees())
     {
-        find_declaration_under_position visitor(sm, position);
+        find_declaration_under_position visitor(sm, file, position);
         candidate->root().visit(visitor);
         if (visitor.node != nullptr)
         {
