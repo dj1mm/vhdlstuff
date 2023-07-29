@@ -672,8 +672,24 @@ void things::sv_working_file::hover(std::shared_ptr<lsp::incoming_request> r,
                                       common::position pos)
 {
     auto get_hover = [r, pos](std::shared_ptr<sv::ast> ast) {
+        if (!ast || !ast->get_main_file())
+        {
             r->reply(json::null_value);
             return;
+        }
+
+        rapidjson::StringBuffer s;
+        rapidjson::Writer<rapidjson::StringBuffer> w(s);
+
+        auto found = sv_hover_provider(&w, ast->compilation, ast->get_source_manager(), ast->get_filename(), pos);
+    
+        if (!found) {
+            r->reply(json::null_value);
+            return;
+        }
+
+        json::string json = s.GetString();
+        r->reply(json);
     };
 
     run_with_sv_ast(get_hover);

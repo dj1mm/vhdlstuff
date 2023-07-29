@@ -64,6 +64,8 @@ class ast
     // update() and this one.
     bool is_uptodate();
 
+    std::string get_filename();
+
     private:
 
     std::string filename;

@@ -176,6 +176,11 @@ sv::ast::get_diagnostics()
                            compilation.getSemanticDiagnostics());
 }
 
+std::string sv::ast::get_filename()
+{
+    return filename;
+}
+
 bool sv::is_a_sv_file(std::string& ext)
 {
     return ext == ".sv" || ext == ".svh";

@@ -810,3 +810,268 @@ bool things::vhdl_hover_provider::visit(vhdl::syntax::context_item* c)
     }
     return !found;
 }
+
+bool things::sv_hover_provider(rapidjson::Writer<rapidjson::StringBuffer>* w,
+                               slang::ast::Compilation& compilation,
+                               slang::SourceManager& sm, std::string file,
+                               lsp::position position)
+{
+    for (auto candidate : compilation.getSyntaxTrees())
+    {
+        find_declaration_under_position visitor(sm, position);
+        candidate->root().visit(visitor);
+        if (visitor.node != nullptr)
+        {
+            slang::syntax::SyntaxPrinter printer(sm);
+            printer.print(*visitor.node);
+
+            w->StartObject();
+            w->Key("kind");
+            w->String("markdown");
+            w->Key("contents");
+            w->String("```sv\n" + printer.str() + "\n```");
+            w->EndObject();
+            return true;
+        }
+    }
+    return false;
+}
+
+things::find_declaration_under_position::find_declaration_under_position(
+    slang::SourceManager& sm, std::string file, lsp::position position)
+    : sm(sm), position(position), node(nullptr), file(file)
+{
+}
+
+bool things::find_declaration_under_position::position_is_within_source_range(
+    const slang::SourceRange range)
+{
+    if (std::filesystem::canonical(sm.getFileName(range.start())) != file)
+        false;
+
+    auto this_line = position.line + 1;
+    auto this_coln = position.character + 1;
+    auto lhs_line = sm.getLineNumber(range.start());
+    auto lhs_coln = sm.getColumnNumber(range.start());
+    auto rhs_line   = sm.getLineNumber(range.end());
+    auto rhs_coln   = sm.getColumnNumber(range.end());
+
+    if (this_line < lhs_line || (this_line == lhs_line && this_coln < lhs_coln))
+        return false;
+    if (this_line > rhs_line || (this_line == rhs_line && this_coln > rhs_coln))
+        return false;
+    return true;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::DataDeclarationSyntax& syntax)
+{
+    for (auto declarator: syntax.declarators)
+        if (position_is_within_source_range(declarator->name.range()))
+            node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::TypedefDeclarationSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.name.range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ForwardTypedefDeclarationSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.name.range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ForwardInterfaceClassTypedefDeclarationSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.name.range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::NetDeclarationSyntax& syntax)
+{
+    for (auto declarator: syntax.declarators)
+        if (position_is_within_source_range(declarator->name.range()))
+            node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::UserDefinedNetDeclarationSyntax& syntax)
+{
+    for (auto declarator: syntax.declarators)
+        if (position_is_within_source_range(declarator->name.range()))
+            node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::NetTypeDeclarationSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.name.range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::PackageImportDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ParameterDeclarationSyntax& syntax)
+{
+    for (auto declarator: syntax.declarators)
+        if (position_is_within_source_range(declarator->name.range()))
+            node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::TypeParameterDeclarationSyntax& syntax)
+{
+    for (auto declarator: syntax.declarators)
+        if (position_is_within_source_range(declarator->name.range()))
+            node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::PortDeclarationSyntax& syntax)
+{
+    for (auto declarator: syntax.declarators)
+        if (position_is_within_source_range(declarator->name.range()))
+            node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ImplicitAnsiPortSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.declarator->name.range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ExplicitAnsiPortSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.name.range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::GenvarDeclarationSyntax& syntax)
+{
+    for (auto identifier: syntax.identifiers)
+        if (position_is_within_source_range(identifier->identifier.range()))
+            node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ForVariableDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ModuleDeclarationSyntax& syntax)
+{
+    if (!position_is_within_source_range(syntax.sourceRange()))
+        return;
+    if (position_is_within_source_range(syntax.header->name.range()))
+        node = &syntax;
+    visitDefault(syntax);
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::TimeUnitsDeclarationSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.time.range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::FunctionDeclarationSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.prototype->name->getLastToken().range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::LetDeclarationSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.identifier.range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::PropertyDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::SequenceDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ClassDeclarationSyntax& syntax)
+{
+    if (position_is_within_source_range(syntax.name.range()))
+        node = &syntax;
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ClassPropertyDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ClassMethodPrototypeSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ModportDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ClockingDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::UdpOutputPortDeclSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::UdpInputPortDeclSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::UdpDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::SpecparamDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::PathDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ConditionalPathDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::IfNonePathDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::PulseStyleDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ConstraintDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::CovergroupDeclarationSyntax& syntax)
+{
+
+}
+
+void things::find_declaration_under_position::handle(const slang::syntax::ProceduralBlockSyntax& syntax)
+{
+
+}
