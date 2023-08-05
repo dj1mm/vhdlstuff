@@ -1,69 +1,31 @@
 find_package(Python3 REQUIRED)
 
-
-# Helper function to extract the directory path of each files. Shamefully taken
-# from https://raw.githubusercontent.com/verilog-to-routing/vtr-verilog-to-routing/master/cmake/modules/FilesToDirs.cmake
-
 if(UNIX AND NOT APPLE)
     set(LINUX TRUE)
 endif()
 
-function(files_to_dirs file_list directory_list)
-    # Extract the directories for each header file
-    foreach(file ${${file_list}})
-        get_filename_component(dir ${file} DIRECTORY)
-        list(APPEND dir_list ${dir})
-    endforeach()
-
-    # Remove any duplicates
-    list(LENGTH "${dir_list}" length)
-    if(${length} GREATER 1) # Avoid error with zero-length lists
-        list(REMOVE_DUPLICATES ${dir_list})
-    endif()
-
-    # Set the second argument in the caller's scope
-    set(${directory_list} ${dir_list} PARENT_SCOPE)
-endfunction(files_to_dirs)
-
-
-include(ExternalProject)
 
 # Download and install args
-ExternalProject_Add(
+include(FetchContent)
+FetchContent_Declare(
     args
-    URL https://github.com/Taywee/args/archive/master.zip
-    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/args
-    INSTALL_COMMAND "" # Disable install step
+    GIT_REPOSITORY https://github.com/Taywee/args
 )
-
-# Get args source and binary directories from CMake project
-ExternalProject_Get_Property(args source_dir binary_dir)
-set(args_source_dir ${source_dir})
-set(args_binary_dir ${binary_dir})
+FetchContent_MakeAvailable(args)
 
 # ------------
 
-include(ExternalProject)
+include(FetchContent)
 
 # Download and install yaml-cpp
-# https://stackoverflow.com/questions/6351609/
-# https://cmake.org/pipermail/cmake/2015-September/061548.html
-ExternalProject_Add(
-    yamlcpp_project
-    URL https://github.com/jbeder/yaml-cpp/archive/master.zip
-    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/yamlcpp_project
-    CMAKE_ARGS "-DYAML_CPP_BUILD_TESTS=OFF"
-    INSTALL_COMMAND "" # Disable install step
+# https://github.com/jbeder/yaml-cpp/issues/1136
+# https://github.com/jbeder/yaml-cpp/issues/774#issuecomment-737155168
+FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp
+    GIT_TAG 98acc5a8874faab28b82c28936f4b400b389f5d6
 )
-
-# Get yamlcpp source and binary directories from CMake project
-ExternalProject_Get_Property(yamlcpp_project source_dir binary_dir)
-set(yamlcpp_source_dir ${source_dir})
-set(yamlcpp_binary_dir ${binary_dir})
-
-add_library(yamlcpp STATIC IMPORTED)
-SET_TARGET_PROPERTIES(yamlcpp PROPERTIES PREFIX "")
-set_target_properties(yamlcpp PROPERTIES IMPORTED_LOCATION ${yamlcpp_binary_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}yaml-cpp${CMAKE_STATIC_LIBRARY_SUFFIX})
+FetchContent_MakeAvailable(yaml-cpp)
 
 # ------------
 
@@ -126,8 +88,6 @@ file(GLOB MAINS *.cpp)
 file(GLOB_RECURSE THINGS_SOURCES things/*.cpp)
 file(GLOB_RECURSE THINGS_HEADERS things/*.h)
 
-files_to_dirs(THINGS_HEADERS INCLUDE_DIRS)
-
 file(GLOB_RECURSE SV_SOURCES sv/*.cpp)
 file(GLOB_RECURSE SV_HEADERS sv/*.h)
 
@@ -139,13 +99,13 @@ add_executable(vhdlstuff vhdlstuff.cpp ${THINGS_SOURCES} ${CMAKE_CURRENT_BINARY_
 
 # the order in which we include libraries matter. libvhdl and liblsp use
 # definitions from libcommon, so it should be completely at the back
-target_link_libraries(vhdlstuff yamlcpp libvhdl liblsp libcommon libfmt slang::slang)
-target_include_directories(vhdlstuff PRIVATE ${args_source_dir}/ ${yamlcpp_source_dir}/include ${yamlcpp_source_dir}-build/include ${rapidjson_source_dir}/include)
+target_link_libraries(vhdlstuff yaml-cpp::yaml-cpp libvhdl liblsp libcommon libfmt slang::slang args)
+target_include_directories(vhdlstuff PRIVATE ${rapidjson_source_dir}/include)
 
 add_executable(debugstuff debug.cpp ${CMAKE_CURRENT_BINARY_DIR}/version.cpp ${SV_SOURCES})
 
-target_link_libraries(debugstuff yamlcpp libvhdl liblsp libcommon libfmt slang::slang)
-target_include_directories(debugstuff PRIVATE ${args_source_dir}/ ${yamlcpp_source_dir}/include ${yamlcpp_source_dir}-build/include ${rapidjson_source_dir}/include)
+target_link_libraries(debugstuff yaml-cpp::yaml-cpp libvhdl liblsp libcommon libfmt slang::slang args)
+target_include_directories(debugstuff PRIVATE ${rapidjson_source_dir}/include)
 
 if(WIN32)
     #do nothing
