@@ -2,6 +2,7 @@
 #include "sv/library_manager.h"
 
 #include "sqlite3/sqlite3.h"
+#include <mutex>
 #include <sstream>
 
 std::size_t id(sv::library_cell_kind kind, std::string identifier,

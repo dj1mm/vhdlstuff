@@ -1,6 +1,7 @@
 
 #include "library_manager.h"
 
+#include <mutex>
 #include <sstream>
 #include "sqlite3.h"
 

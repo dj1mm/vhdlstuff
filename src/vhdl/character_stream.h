@@ -2,6 +2,7 @@
 #ifndef VHDL_CHARACTER_STREAM_H
 #define VHDL_CHARACTER_STREAM_H
 
+#include <cstddef>
 #include <string>
 
 namespace vhdl
