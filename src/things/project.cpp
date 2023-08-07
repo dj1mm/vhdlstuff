@@ -118,7 +118,7 @@ things::project::project(std::function<void()> cb, things::client* c)
     current_background_explorer_ = std::make_unique<things::explorer>(
         loaded_version_, current_filelist_, current_library_manager_,
         current_sv_library_manager_,
-        path_to_loaded_yaml_.value_or(""),
+        path_to_loaded_yaml_.value_or("").string(),
         on_all_requests_completed, client_, project_folder_.string());
 }
 
@@ -190,7 +190,7 @@ bool things::project::
     auto temp_lst = std::make_shared<things::filelist>();
     auto temp_xpl = std::make_unique<things::explorer>(loaded_version_,
         temp_lst, temp_mgr, temp_svm,
-        path_to_loaded_yaml_.value_or(""),
+        path_to_loaded_yaml_.value_or("").string(),
         on_all_requests_completed, client_, project_folder_.string());
 
     // ------------------------------------------------------------------------
@@ -199,7 +199,7 @@ bool things::project::
     std::unique_ptr<things::config::root> vhdl_config;
     try
     {
-        auto node = YAML::LoadFile(path_to_yaml);
+        auto node = YAML::LoadFile(path_to_yaml.string());
         auto root = node.as<things::config::root>();
         vhdl_config = std::make_unique<things::config::root>(root);
         LOG_S(INFO) << "ProjectManager: loaded " << path_to_yaml.string()
@@ -213,7 +213,7 @@ bool things::project::
         diag.range.start.character = e.mark.column-1;
         diag.range.end.line        = e.mark.line-1;
         diag.range.end.character   = e.mark.column-1;
-        client_->send_persistent_diagnostic(path_to_yaml, diag);
+        client_->send_persistent_diagnostic(path_to_yaml.string(), diag);
         LOG_S(ERROR) << "ProjectManager: error loading " << path_to_yaml.string()
                      << " ver" << loaded_version_ << ": " << e.msg;
         return false;
@@ -226,7 +226,7 @@ bool things::project::
         diag.range.start.character = 0;
         diag.range.end.line        = 0;
         diag.range.end.character   = 0;
-        client_->send_persistent_diagnostic(path_to_yaml, diag);
+        client_->send_persistent_diagnostic(path_to_yaml.string(), diag);
         LOG_S(ERROR) << "ProjectManager: error loading " << path_to_yaml
                      << " ver" << loaded_version_ << ": " << e.what();
         return false;
@@ -289,7 +289,7 @@ bool things::project::
     current_sv_library_manager_.reset();
     current_sv_library_manager_ = temp_svm;
 
-    client_->clear_persistent_diagnostic(path_to_yaml);
+    client_->clear_persistent_diagnostic(path_to_yaml.string());
     return true;
 }
 
@@ -481,7 +481,7 @@ int things::explorer::worker::explore_spec(things::config::file_spec* spec)
 
                 filelist->add_entry(file.string(), spec);
             } else if (sv::is_a_sv_file(ext)) {
-                sv::fast_parser fast(&sm, file);
+                sv::fast_parser fast(&sm, file.string());
                 auto entries = fast.parse();
 
                 auto lib = sv_manager->get(spec->library->name);
@@ -569,7 +569,7 @@ int things::explorer::worker::explore_spec(things::config::file_spec* spec)
 
             filelist->add_entry(file.string(), spec);
         } else if (is_sv_file) {
-            sv::fast_parser fast(&sm, file);
+            sv::fast_parser fast(&sm, file.string());
             auto entries = fast.parse();
 
            auto lib = sv_manager->get(spec->library->name);

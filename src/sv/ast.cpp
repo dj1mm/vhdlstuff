@@ -20,7 +20,7 @@ sv::ast::ast(std::string f, std::shared_ptr<sv::library_manager> m,
       incdirs(i)
 {
     for (auto& incdir: incdirs)
-        sm.addUserDirectory(incdir);
+        sm.addUserDirectories(incdir);
 }
 
 bool sv::ast::update()
@@ -29,7 +29,7 @@ bool sv::ast::update()
     if (!invalidated_)
         return true;
 
-    auto buffer = sm.readSource(filename);
+    auto buffer = sm.readSource(filename, nullptr);
     if (!buffer)
     {
         main_file.reset();
@@ -47,7 +47,7 @@ bool sv::ast::update()
     options.set(po);
     options.set(co);
 
-    main_file = slang::syntax::SyntaxTree::fromBuffer(buffer, sm, options);
+    main_file = slang::syntax::SyntaxTree::fromBuffer(*buffer, sm, options);
 
     auto lib = library_manager->get(worklibrary);
 
@@ -131,12 +131,12 @@ bool sv::ast::update()
             if (sm.isCached(file))
                 continue;
 
-            auto buffer = sm.readSource(file);
+            auto buffer = sm.readSource(file, nullptr);
             if (!buffer)
             {
                 continue;
             }
-            auto tree = slang::syntax::SyntaxTree::fromBuffer(buffer, sm, options);
+            auto tree = slang::syntax::SyntaxTree::fromBuffer(*buffer, sm, options);
             tree->isLibrary = true;
             compilation.addSyntaxTree(tree);
             add_known_names(tree);

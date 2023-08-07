@@ -57,7 +57,7 @@ include(FetchContent)
 FetchContent_Declare(
   slang
   GIT_REPOSITORY https://github.com/MikePopoloski/slang
-  GIT_TAG v3.0
+  GIT_TAG v4.0
   GIT_SHALLOW ON)
 FetchContent_MakeAvailable(slang)
 
@@ -72,7 +72,6 @@ add_subdirectory(lsp)
 add_subdirectory(vhdl)
 
 add_custom_command(
-    COMMAND ""
     OUTPUT always_run
     COMMENT "[VERSION][CHECK] Check repository"
 )

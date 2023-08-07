@@ -50,11 +50,11 @@ int debug_tokens(std::string file, std::filesystem::path path, bool stats = fals
         slang::Diagnostics diagnostics;
         slang::parsing::Preprocessor pp(sm, alloc, diagnostics);
 
-        auto buffer = sm.readSource(file);
+        auto buffer = sm.readSource(file, nullptr);
         if (!buffer)
             throw std::invalid_argument(fmt::format("Unable to open {}", file));
 
-        pp.pushSource(buffer);
+        pp.pushSource(*buffer);
 
         slang::syntax::SyntaxPrinter output;
         while (true) {

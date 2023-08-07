@@ -21,7 +21,7 @@ sv::fast_parser::parse()
         std::tuple<sv::library_cell_kind, unsigned, unsigned, std::string,
                    std::optional<std::string>, std::string, time_t>>
         result;
-    auto buffer = sm->readSource(file);
+    auto buffer = sm->readSource(file, nullptr);
     if (!buffer)
     {
         return {};
@@ -36,7 +36,7 @@ sv::fast_parser::parse()
     options.set(lo);
     options.set(po);
 
-    auto tree = slang::syntax::SyntaxTree::fromBuffer(buffer, *sm, options);
+    auto tree = slang::syntax::SyntaxTree::fromBuffer(*buffer, *sm, options);
     for (auto& [node, _]: tree->getMetadata().nodeMap) {
         auto decl        = &node->as<slang::syntax::ModuleDeclarationSyntax>();
         auto name        = std::string(decl->header->name.valueText());

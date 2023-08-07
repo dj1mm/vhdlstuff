@@ -111,7 +111,7 @@ bool vhdl::ast::update()
     {
         auto it = std::remove_if(
             cache.begin(), cache.end(),
-            [lhs = unit](auto const& rhs) { return *lhs == *rhs->syntax; });
+            [lhs = unit](auto const& rhs) { return lhs == rhs->syntax; });
         cache.erase(it, cache.end());
 
         auto libunit = std::make_shared<vhdl::node::library_unit>();
@@ -262,7 +262,7 @@ vhdl::ast::load_primary_unit(std::optional<std::string> library,
     {
         auto it = std::remove_if(
             cache.begin(), cache.end(),
-            [lhs = unit](auto const& rhs) { return *lhs == *rhs->syntax; });
+            [lhs = unit](auto const& rhs) { return lhs == rhs->syntax; });
         cache.erase(it, cache.end());
 
         auto libunit = std::make_shared<vhdl::node::library_unit>();
