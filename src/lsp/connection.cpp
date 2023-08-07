@@ -108,7 +108,11 @@ void lsp::stdio::write(const std::string& message)
 
     std::cout <<
         "Content-Length: " << message.length() <<
+#if WIN32
+        "\n\n" << // this is needed for some reason that I cannot understand
+#else
         "\r\n\r\n" <<
+#endif
         message << std::flush;
 }
 
