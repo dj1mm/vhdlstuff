@@ -176,12 +176,6 @@ struct position
         return *this;
     }
 
-    // convert this lsp::position to its equivalent common::position object
-    operator common::position()
-    {
-        return common::position(line+1, character+1);
-    }
-
     bool operator==(const position &o) const
     {
         return line == o.line && character == o.character;
@@ -242,12 +236,6 @@ struct range
         start = location.begin;
         end = location.end;
         return *this;
-    }
-
-    // convert this lsp::range to its equivalent common::location object
-    operator common::location()
-    {
-        return common::location(start, end);
     }
 
     bool operator==(const range &o) const
