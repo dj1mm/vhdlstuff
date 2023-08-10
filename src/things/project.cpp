@@ -122,7 +122,7 @@ things::project::project(std::function<void()> cb, things::client* c)
         on_all_requests_completed, client_, project_folder_.string());
 }
 
-void things::project::set_project_folder(std::string folder)
+void things::project::set_project_folder(std::filesystem::path& folder)
 {
     // this is the folder from which we will look for a vhdl_config.yaml file
     project_folder_ = folder;
@@ -494,7 +494,7 @@ int things::explorer::worker::explore_spec(things::config::file_spec* spec)
                 filelist->add_entry(file.string(), spec);
             }
 
-            auto is_stopped = quit_.load(std::memory_order_release);
+            auto is_stopped = quit_.load(std::memory_order_relaxed);
             if (is_stopped)
                 break;
         }
@@ -597,7 +597,7 @@ void things::explorer::worker::work()
 
     for (auto spec: specs)
     {
-        auto is_stopped = quit_.load(std::memory_order_release);
+        auto is_stopped = quit_.load(std::memory_order_relaxed);
         if (is_stopped)
             break;
 

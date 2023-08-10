@@ -50,12 +50,9 @@ void things::language::on_initialize(
     rapidjson::Document r;
     r.Parse(request->params->str);
     if (r.HasMember("rootUri") && r["rootUri"].IsString()) {
-        std::string raw_uri = r["rootUri"].GetString();
+        lsp::document_uri rootUri(r["rootUri"].GetString());
 
-        if (raw_uri.compare(0, 7, "file://"))
-            capabilities.root = raw_uri;
-        else
-            capabilities.root = raw_uri.substr(7);
+        capabilities.root = rootUri.get_path();
     }
     }
 
@@ -116,7 +113,7 @@ void things::language::on_text_document_did_open(
     auto param =
         serialize::from_json<lsp::text_document_did_open_save_close_params>(
             notification->params.value());
-    working_files.update(param.text_document.uri.get_path());
+    working_files.update(param.text_document.uri.get_string());
 }
 
 void things::language::on_text_document_did_save(
@@ -127,7 +124,7 @@ void things::language::on_text_document_did_save(
     auto param =
         serialize::from_json<lsp::text_document_did_open_save_close_params>(
             notification->params.value());
-    working_files.update(param.text_document.uri.get_path());
+    working_files.update(param.text_document.uri.get_string());
 }
 
 void things::language::on_text_document_did_close(
@@ -138,7 +135,7 @@ void things::language::on_text_document_did_close(
     auto param =
         serialize::from_json<lsp::text_document_did_open_save_close_params>(
             notification->params.value());
-    working_files.remove(param.text_document.uri.get_path());
+    working_files.remove(param.text_document.uri.get_string());
 
     std::vector<lsp::diagnostic> empty;
     client.send_diagnostics(param.text_document.uri.get_path(), empty);
@@ -157,7 +154,7 @@ void things::language::on_text_document_folding_range(
 
     auto param = serialize::from_json<lsp::folding_range_params>(
         request->params.value());
-    working_files.folding_ranges(param.text_document.uri.get_path(), request);
+    working_files.folding_ranges(param.text_document.uri.get_string(), request);
 }
 
 void things::language::on_text_document_symbol(
@@ -167,7 +164,7 @@ void things::language::on_text_document_symbol(
 
     auto param = serialize::from_json<lsp::document_symbols_params>(
         request->params.value());
-    working_files.symbols(param.text_document.uri.get_path(), request);
+    working_files.symbols(param.text_document.uri.get_string(), request);
 }
 
 void things::language::on_text_document_hover(
@@ -178,7 +175,7 @@ void things::language::on_text_document_hover(
     auto param = serialize::from_json<lsp::text_document_hover_params>(
         request->params.value());
     common::position pos(param.position.line + 1, param.position.character + 1);
-    working_files.hover(param.text_document.uri.get_path(), request, pos);
+    working_files.hover(param.text_document.uri.get_string(), request, pos);
 }
 
 void things::language::on_text_document_definition(
@@ -189,7 +186,7 @@ void things::language::on_text_document_definition(
     auto param = serialize::from_json<lsp::text_document_hover_params>(
         request->params.value());
     common::position pos(param.position.line + 1, param.position.character + 1);
-    working_files.definition(param.text_document.uri.get_path(), request, pos);
+    working_files.definition(param.text_document.uri.get_string(), request, pos);
 }
 
 void things::language::on_workspace_did_change_watched_files(

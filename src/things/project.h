@@ -113,7 +113,7 @@ class project
 
     // this is the workspace folder which is also the folder from which the
     // language server will look for a vhdl_config.yaml file
-    void set_project_folder(std::string);
+    void set_project_folder(std::filesystem::path&);
 
     // returns true if this project instance is currently loaded with valid
     // content from a yaml file

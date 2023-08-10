@@ -2,6 +2,7 @@
 #ifndef LSP_STRUCTURES_H
 #define LSP_STRUCTURES_H
 
+#include <filesystem>
 #include <optional>
 #include <string>
 
@@ -35,17 +36,85 @@ struct document_uri
         return raw_uri < o.raw_uri;
     }
 
-    void set_path(const std::string &path)
+    void set_path(const std::filesystem::path& path)
     {
-        raw_uri = path;
+        raw_uri = path.string();
+#if WIN32
+        if (raw_uri[1] == ':') { // windows drive letters must always be 1 ch
+            raw_uri[0] = std::tolower(raw_uri[0]);
+            raw_uri.replace(raw_uri.begin() + 1,
+                            raw_uri.begin() + 2, "%3A");
+        }
+        std::replace(raw_uri.begin(), raw_uri.end(), '\\', '/');
+#endif
+
+        // subset of reserved characters from the URI standard
+        // http://www.ecma-international.org/ecma-262/6.0/#sec-uri-syntax-and-semantics
+        std::string t;
+        t.reserve(8 + raw_uri.size());
+        // TODO: proper fix
+#if WIN32
+        t += "file:///";
+#else
+        t += "file://";
+#endif
+
+        for (char c: raw_uri)
+            switch (c) {
+            case ' ': t += "%20"; break;
+            case '#': t += "%23"; break;
+            case '$': t += "%24"; break;
+            case '&': t += "%26"; break;
+            case '(': t += "%28"; break;
+            case ')': t += "%29"; break;
+            case '+': t += "%2B"; break;
+            case ',': t += "%2C"; break;
+            case ';': t += "%3B"; break;
+            case '?': t += "%3F"; break;
+            case '@': t += "%40"; break;
+            default:  t += c;     break;
+            }
+
+        raw_uri = std::move(t);
     }
 
-    std::string get_path() const
+    std::filesystem::path get_path() const
+    {
+        return get_string();
+    }
+
+    std::string get_string() const
     {
         if (raw_uri.compare(0, 7, "file://"))
             return raw_uri;
 
-        return raw_uri.substr(7);
+        std::string res;
+        auto from_hex = [](unsigned char c) {
+            return c - '0' < 10 ? c - '0' : (c | 32) - 'a' + 10;
+        };
+        for (
+#if WIN32
+        auto i = 8 // skipping the initial "/" on Windows
+#else
+        auto i = 7
+#endif
+            ; i < raw_uri.size(); i++) {
+            if (i + 3 <= raw_uri.size() && raw_uri[i] == '%')
+            {
+                res.push_back(from_hex(raw_uri[i + 1]) * 16 +
+                              from_hex(raw_uri[i + 2]));
+                i += 2;
+            }
+            else
+                res.push_back(raw_uri[i]);
+        }
+#if WIN32
+        std::replace(res.begin(), res.end(), '\\', '/');
+        if (res.size() > 1 && res[0] >= 'a' && res[0] <= 'z' && res[1] == ':')
+            res[0] = toupper(res[0]);
+#endif
+
+        return res;
     }
 
     void set_uri(const std::string &uri)
@@ -240,14 +309,6 @@ struct location
         uri.set_path("");
         range = location;
         return *this;
-    }
-
-    // convert this lsp::location to its equivalent common::location object
-    operator common::location()
-    {
-        common::location location = range;
-        location.filename = uri.get_path();
-        return location;
     }
 
     bool operator==(const location &o) const

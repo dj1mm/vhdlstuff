@@ -19,7 +19,7 @@ namespace things
 
 struct capabilities
 {
-    std::optional<std::string> root;
+    std::optional<std::filesystem::path> root;
 };
 
 class language: public lsp::server

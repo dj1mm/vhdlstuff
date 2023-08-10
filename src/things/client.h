@@ -39,7 +39,7 @@ class client: public lsp::client
     void show_message(std::string);
     void log_message(std::string);
     void send_diagnostics(std::string, std::vector<common::diagnostic>);
-    void send_diagnostics(std::string, std::vector<lsp::diagnostic>);
+    void send_diagnostics(std::filesystem::path, std::vector<lsp::diagnostic>&);
     void send_persistent_diagnostic(std::string, lsp::diagnostic&);
     void clear_persistent_diagnostic(std::string);
 

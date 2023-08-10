@@ -156,7 +156,7 @@ void things::client::send_diagnostics(
 }
 
 void things::client::send_diagnostics(
-    std::string file, std::vector<lsp::diagnostic> diagnostics)
+    std::filesystem::path file, std::vector<lsp::diagnostic>& diagnostics)
 {
     lsp::publish_diagnostics_params params;
     params.uri.set_path(file);
