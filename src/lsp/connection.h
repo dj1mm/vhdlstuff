@@ -5,6 +5,8 @@
 #include <atomic>
 #include <fstream>
 #include <iostream>
+#include <list>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -65,6 +67,48 @@ class stdio: public connection
     std::mutex       lock_;
 
     message_header read_message_header();
+};
+
+class journal_reader
+{
+    std::ifstream input;
+    int line_number;
+
+    public:
+    journal_reader(const std::string&);
+    ~journal_reader();
+
+    struct transactions
+    {
+        bool eof;
+        std::list<std::tuple<int, std::string>> requests;
+        std::list<std::tuple<int, bool, std::string>> responses;
+    };
+    transactions next();
+};
+
+class replay: public connection
+{
+    std::string filename;
+    journal_reader reader;
+    journal_reader::transactions current;
+
+    public:
+    replay(std::string&);
+    ~replay();
+
+    std::optional<std::string> read();
+    void write(const std::string&);
+
+    bool good();
+
+    protected:
+
+    std::atomic_bool stopped = false;
+
+    message_header read_message_header();
+    bool compare_expected_response_vs_actual_write(std::string&, std::string&);
+    std::optional<std::string> wait_for_response_or_else_get_next_request();
 };
 
 }

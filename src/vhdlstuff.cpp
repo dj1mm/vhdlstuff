@@ -27,6 +27,7 @@ int main(int argc, char** argv)
     args::ValueFlag<std::string> l(parser, "path"   , "output logs to this file",   {     "logfile"});
     args::ValueFlag<std::string> t(parser, "path"   , "write trace to this file",   {     "trace"});
     args::ValueFlag<std::string> j(parser, "path"   , "write journal to this file", {     "journal"});
+    args::ValueFlag<std::string> r(parser, "path"   , "replay this journal file",   {     "replay"});
 
     int status = 0;
     try
@@ -36,6 +37,10 @@ int main(int argc, char** argv)
         if (s)
         {
             loguru::g_stderr_verbosity = loguru::Verbosity_MAX;
+        }
+        else if (r)
+        {
+            loguru::g_stderr_verbosity = loguru::Verbosity_1;
         }
         else
         {
@@ -57,6 +62,14 @@ int main(int argc, char** argv)
             return status;
         }
 
+        if (r)
+        {
+            lsp::replay connection(args::get(r));
+            things::language server(&connection);
+            server.run();
+        }
+        else
+        {
         lsp::stdio connection;
         if (j && connection.tee(args::get(j)))
         {
@@ -69,6 +82,7 @@ int main(int argc, char** argv)
 
         things::language server(&connection);
         server.run();
+        }
     }
     catch (const args::Completion& e)
     {
