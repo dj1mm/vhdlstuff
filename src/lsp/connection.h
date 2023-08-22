@@ -80,7 +80,7 @@ class journal_reader
 
     struct transactions
     {
-        bool eof;
+        bool valid;
         std::list<std::tuple<int, std::string>> requests;
         std::list<std::tuple<int, bool, std::string>> responses;
     };
