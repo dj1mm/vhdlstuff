@@ -247,7 +247,8 @@ std::optional<std::string> lsp::replay::read()
 
 void lsp::replay::write(const std::string& message)
 {
-    LOG_S(1) << "RESP: " << message;
+    // LOG_S(1) << "RESP: " << message;
+    response_queue.push(message);
 }
 
 bool lsp::replay::good()
@@ -265,20 +266,31 @@ lsp::replay::wait_for_response_or_else_get_next_request()
 {
     while (!current.valid)
     {
-        if (current.requests.size() > 0)
+        while (current.requests.size() > 0)
         {
             auto req = current.requests.front();
             current.requests.pop_front();
-            LOG_S(1) << filename << ":" << std::get<0>(req) << ": " << std::get<1>(req);
+            LOG_S(1) << "REQ: " << filename << ":" << std::get<0>(req) << ": " << std::get<1>(req);
             return std::get<std::string>(req);
         }
 
         if (current.responses.size() > 0)
         {
-            // wait for responses here
-            // for (auto resp: current.responses) {
-            //     LOG_S(1) << "CHECK MATCH: Line" << std::get<0>(resp) << ": " << std::get<2>(resp);
-            // }
+            while (current.responses.size() > 0)
+            {
+                auto value = response_queue.pop(std::chrono::seconds(10));
+                auto expected = current.responses.front();
+                current.responses.pop_front();
+                if (!value)
+                {
+                    LOG_S(ERROR) << "TIMEOUT!!!. Did not get " << filename << ":" << std::get<0>(expected) << ": " << std::get<2>(expected);
+                }
+                else
+                {
+                    LOG_S(1) << "EXPECTED: " << filename << ":" << std::get<0>(expected) << ": " << std::get<2>(expected);
+                    LOG_S(1) << "GOT:      " << filename << ":" << std::get<0>(expected) << ": " << value.value();
+                }
+            }
         }
 
         current = reader.next();

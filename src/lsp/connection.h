@@ -3,6 +3,9 @@
 #define LSP_CONNECTION_H
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <fstream>
 #include <iostream>
 #include <list>
@@ -87,11 +90,71 @@ class journal_reader
     transactions next();
 };
 
+template<typename T>
+class queue
+{
+    std::mutex mutex;
+    std::condition_variable condition;
+    std::deque<T> container;
+    bool stopped = false;
+
+    public:
+    queue() = default;
+    queue(queue&&) = default;
+    queue& operator=(queue&&) = default;
+    ~queue() = default;
+
+    // no copy
+    queue(const queue&) = delete;
+    queue& operator=(const queue&) = delete;
+
+    void push(const T value) noexcept
+    {
+        std::unique_lock g(mutex);
+        container.push_back(value);
+        condition.notify_one();
+    }
+
+    std::optional<T> pop() noexcept
+    {
+        std::unique_lock g(mutex);
+        condition.wait(g, [&] { return !container.empty() || stopped; });
+        if (container.empty())
+            return std::nullopt;
+
+        auto value = container.front();
+        container.pop_front();
+        return value;
+    }
+
+    template<class R, class P>
+    std::optional<T> pop(const std::chrono::duration<R, P>& timeout) noexcept
+    {
+        std::unique_lock g(mutex);
+        condition.wait_for(g, timeout, [&] { return !container.empty() || stopped; });
+        if (container.empty())
+            return std::nullopt;
+
+        auto value = container.front();
+        container.pop_front();
+        return value;
+    }
+
+    void stop() noexcept
+    {
+        std::unique_lock g(mutex);
+        stopped = true;
+        condition.notify_all();
+    }
+};
+
 class replay: public connection
 {
     std::string filename;
     journal_reader reader;
     journal_reader::transactions current;
+
+    queue<std::string> response_queue;
 
     public:
     replay(std::string&);
