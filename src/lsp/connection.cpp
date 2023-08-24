@@ -1,4 +1,5 @@
 
+#include <algorithm>
 #include "connection.h"
 #include "common/loguru.h"
 
@@ -158,7 +159,7 @@ lsp::journal_reader::transactions lsp::journal_reader::next()
         case state::idle:
             if (line == "---" && (requests.size() + responses.size()) > 0) {
                 transactions result;
-                result.valid = !not_eof;
+                result.valid = true;
                 result.requests = requests;
                 result.responses = responses;
                 return result;
@@ -180,7 +181,7 @@ lsp::journal_reader::transactions lsp::journal_reader::next()
             }
             if (line == "---") {
                 transactions result;
-                result.valid = !not_eof;
+                result.valid = true;
                 result.requests = requests;
                 result.responses = responses;
                 return result;
@@ -202,7 +203,7 @@ lsp::journal_reader::transactions lsp::journal_reader::next()
             }
             {
                 transactions result;
-                result.valid = !not_eof;
+                result.valid = true;
                 result.requests = requests;
                 result.responses = responses;
                 return result;
@@ -214,7 +215,7 @@ lsp::journal_reader::transactions lsp::journal_reader::next()
         current_state = next_state;
     }
     transactions result;
-    result.valid = true;
+    result.valid = false;
     result.requests = requests;
     result.responses = responses;
     return result;
@@ -235,19 +236,29 @@ lsp::replay::~replay()
     stopped.store(true);
 }
 
+void lsp::replay::print_status()
+{
+    LOG_S(1) << "Journal file:    " << number_of_requests_in_the_journal << " requests and " << number_of_responses_in_the_journal << " responses";
+    LOG_S(1) << "Language server: " << number_of_requests_serviced_by_the_language_server << " requests and " << number_of_responses_generated_by_the_language_server << " responses";
+
+    LOG_S(1) << "Matches / Ignored / Timed out / Unhandled : " << (number_of_matches + number_of_ooo_matches) << " / " << number_of_ignores << " / " << number_of_timeouts << " / " << unhandled_responses.size();
+}
+
 std::optional<std::string> lsp::replay::read()
 {
     auto request = wait_for_response_or_else_get_next_request();
     if (!request)
     {
         stopped.store(true);
+        return request;
     }
+    number_of_requests_serviced_by_the_language_server++;
     return request;
 }
 
 void lsp::replay::write(const std::string& message)
 {
-    // LOG_S(1) << "RESP: " << message;
+    number_of_responses_generated_by_the_language_server++;
     response_queue.push(message);
 }
 
@@ -264,13 +275,14 @@ lsp::connection::message_header lsp::replay::read_message_header()
 std::optional<std::string>
 lsp::replay::wait_for_response_or_else_get_next_request()
 {
-    while (!current.valid)
+    while (current.valid)
     {
         while (current.requests.size() > 0)
         {
             auto req = current.requests.front();
             current.requests.pop_front();
-            LOG_S(1) << "REQ: " << filename << ":" << std::get<0>(req) << ": " << std::get<1>(req);
+            number_of_requests_in_the_journal++;
+            LOG_S(1) << "REQ: " << filename << ":" << std::get<0>(req);
             return std::get<std::string>(req);
         }
 
@@ -278,17 +290,44 @@ lsp::replay::wait_for_response_or_else_get_next_request()
         {
             while (current.responses.size() > 0)
             {
-                auto value = response_queue.pop(std::chrono::seconds(10));
                 auto expected = current.responses.front();
                 current.responses.pop_front();
-                if (!value)
+                number_of_responses_in_the_journal++;
+
+                if (unhandled_responses.size() > 0)
                 {
-                    LOG_S(ERROR) << "TIMEOUT!!!. Did not get " << filename << ":" << std::get<0>(expected) << ": " << std::get<2>(expected);
+                    auto response = std::find_if(unhandled_responses.begin(), unhandled_responses.end(), [&] (const auto& r) { return r == std::get<2>(expected); });
+                    if (response != std::end(unhandled_responses))
+                    {
+                        LOG_S(1) << "MATCH OOO: " << filename << ":" << std::get<0>(expected) << ": " << *response;
+                        unhandled_responses.erase(response);
+                        number_of_ooo_matches++;
+                        continue;
+                    }
+
                 }
-                else
+                auto timedout_or_matched = false;
+                while (!timedout_or_matched)
                 {
-                    LOG_S(1) << "EXPECTED: " << filename << ":" << std::get<0>(expected) << ": " << std::get<2>(expected);
-                    LOG_S(1) << "GOT:      " << filename << ":" << std::get<0>(expected) << ": " << value.value();
+                    auto value = response_queue.pop(std::chrono::seconds(10));
+                    if (!value)
+                    {
+                        LOG_S(ERROR) << "TIMEOUT: " << filename << ":" << std::get<0>(expected) << ": " << std::get<2>(expected);
+                        number_of_timeouts++;
+                        timedout_or_matched = true;
+                    }
+                    else if (*value == std::get<2>(expected))
+                    {
+                        LOG_S(1) << "MATCH: " << filename << ":" << std::get<0>(expected) << ": " << *value;
+                        number_of_matches++;
+                        timedout_or_matched = true;
+                    }
+                    else
+                    {
+                        LOG_S(1) << "IGNORED: " << filename << ":" << std::get<0>(expected) << ": " << *value;
+                        unhandled_responses.push_back(*value);
+                        number_of_ignores++;
+                    }
                 }
             }
         }

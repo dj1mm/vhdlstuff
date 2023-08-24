@@ -153,12 +153,24 @@ class replay: public connection
     std::string filename;
     journal_reader reader;
     journal_reader::transactions current;
+    std::list<std::string> unhandled_responses;
+
+    int number_of_requests_in_the_journal = 0;
+    int number_of_responses_in_the_journal = 0;
+    int number_of_requests_serviced_by_the_language_server = 0;
+    int number_of_responses_generated_by_the_language_server = 0;
+    int number_of_ooo_matches = 0;
+    int number_of_matches = 0;
+    int number_of_ignores = 0;
+    int number_of_timeouts = 0;
 
     queue<std::string> response_queue;
 
     public:
     replay(std::string&);
     ~replay();
+
+    void print_status();
 
     std::optional<std::string> read();
     void write(const std::string&);

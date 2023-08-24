@@ -51,6 +51,7 @@ void lsp::server::on_initialized(std::shared_ptr<lsp::incoming_notification> not
 
 void lsp::server::on_shutdown(std::shared_ptr<lsp::incoming_request> request)
 {
+    shutdown_ = true;
     request->reply(json::null_value);
 }
 
