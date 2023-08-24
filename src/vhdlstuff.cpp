@@ -66,6 +66,7 @@ int main(int argc, char** argv)
         {
             lsp::replay connection(args::get(r));
             things::language server(&connection);
+            server.run();
 
             connection.print_status();
         }
