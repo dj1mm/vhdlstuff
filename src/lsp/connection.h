@@ -6,6 +6,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <list>
@@ -151,6 +152,7 @@ class queue
 class replay: public connection
 {
     std::string filename;
+    std::filesystem::path path_to_journal;
     journal_reader reader;
     journal_reader::transactions current;
     std::list<std::string> unhandled_responses;

@@ -1,12 +1,17 @@
 
 #include "definition_provider.h"
+#include "lsp/structures.h"
 
 void things::vhdl_definition_provider::definition_found(common::location target, common::position selection_begin, common::position selection_end)
 {
+    lsp::document_uri uri;
+    uri.set_path(target.filename);
+    auto target_uri = uri.get_uri();
+
     found = true;
     json_populated = true;
     w->StartObject();
-    w->Key("targetUri"); w->String(std::string(target.filename));
+    w->Key("targetUri"); w->String(target_uri.c_str(), target_uri.size());
     w->Key("targetRange");
         w->StartObject();
         w->Key("start");
